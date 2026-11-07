@@ -1,18 +1,42 @@
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
-import { tmpdir } from 'node:os';
+import { tmpdir, release } from 'node:os';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 // This is a prerequisite check, not a GUI test. It never requests OS permissions.
-const app = resolve(process.env.EDITOR_APP_PATH ?? 'src-tauri/target/release/bundle/macos/Free Code Editor.app');
+const defaultApp = process.platform === 'darwin' ? 'src-tauri/target/release/bundle/macos/Free Code Editor.app' : `src-tauri/target/release/free-code-editor${process.platform === 'win32' ? '.exe' : ''}`;
+const app = resolve(process.env.EDITOR_APP_PATH ?? defaultApp);
 const report = { app, platform: process.platform, packageValid: false, signatureValid: false, desktop: null, launch: null };
 function run(command, args, timeout = 15000) {
   const result = spawnSync(command, args, { encoding: 'utf8', timeout });
   return { status: result.status, signal: result.signal, error: result.error?.message, stdout: result.stdout?.trim() ?? '', stderr: result.stderr?.trim() ?? '' };
 }
 if (process.platform !== 'darwin') {
-  console.error('Real desktop preflight currently requires macOS.'); process.exitCode = 2;
+  try {
+    accessSync(app, constants.X_OK); report.packageValid = true; report.signatureValid = null;
+    if (process.platform === 'linux') {
+      report.dependencies = run('ldd', [app]);
+      report.runtimeReady = report.dependencies.status === 0 && !report.dependencies.stdout.includes('not found');
+      report.desktop = { graphicalSessionAvailable: Boolean(process.env.WAYLAND_DISPLAY || process.env.DISPLAY) };
+    } else if (process.platform === 'win32') {
+      const build = Number(release().split('.')[2]);
+      const probe = run('powershell.exe', ['-NoProfile', '-Command', `$roots = @([Environment]::GetFolderPath('ProgramFilesX86'), $env:ProgramFiles, $env:LOCALAPPDATA); $found = $false; foreach ($root in $roots) { if ($root -and (Get-ChildItem -Path (Join-Path $root 'Microsoft\\EdgeWebView\\Application\\*\\msedgewebview2.exe') -ErrorAction SilentlyContinue)) { $found = $true } }; @{ webview2 = $found; interactive = [Environment]::UserInteractive } | ConvertTo-Json -Compress`]);
+      const info = probe.status === 0 ? JSON.parse(probe.stdout) : {};
+      report.runtimeReady = build >= 17763 && info.webview2 === true;
+      report.desktop = { graphicalSessionAvailable: info.interactive === true, windowsBuild: build, webview2Installed: info.webview2 ?? null };
+    } else { throw new Error(`Unsupported desktop platform: ${process.platform}`); }
+    const ready = report.runtimeReady && report.desktop.graphicalSessionAvailable;
+    report.result = !report.runtimeReady ? 'RUNTIME_MISSING' : ready ? 'PREFLIGHT_READY' : 'DESKTOP_BLOCKED';
+    if (process.argv.includes('--launch')) {
+      if (ready) { const child = spawn(app, [], { detached: true, stdio: 'ignore' }); child.on('error', error => console.error(error.message)); child.unref(); report.launch = 'Launch requested; interaction remains unverified'; }
+      else report.launch = { skipped: 'A compatible runtime and graphical session are required.' };
+    }
+    report.note = 'Runtime/session checks do not verify actual WebView interaction or signing.';
+    process.exitCode = ready ? 0 : 2;
+  } catch (error) { report.result = 'PACKAGE_FAILED'; report.error = String(error); process.exitCode = 1; }
+  console.log(JSON.stringify(report, null, 2));
 } else {
   let temporary;
   try {

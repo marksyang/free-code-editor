@@ -9,6 +9,8 @@ import { languageForPath, languageIds, editorModelPath } from './languages';
 import { editorReducer, initialSession, normalizeSession, isDirty, fuzzyPaths, closeSnapshot, recoverTab } from './editor-state';
 import type { Action, Session, Tab } from './editor-state';
 import { comparisonForPath } from './compare-files';
+import { GitPanel } from './GitPanel';
+import { TerminalPanel } from './TerminalPanel';
 import { CompareView } from './CompareView';
 import { CodePane } from './CodePane';
 import { MarkdownPreview } from './MarkdownPreview';
@@ -19,7 +21,10 @@ import { serverKey } from './lsp-protocol';
 import type { LspSettings as LspSettingsData } from './lsp-protocol';
 import { Dialog, Palette } from './Overlays';
 import type { DialogSpec, DialogResult, PaletteEntry } from './Overlays';
+import { absoluteFileLocation, normalizeUserPath, shortcutLabel } from './platform';
 import './style.css';
+const isWindows = navigator.platform.startsWith('Win');
+const shortcut = (value: string) => shortcutLabel(value, /Mac/i.test(navigator.platform));
 
 loader.config({ monaco });
 const loadTreeDirectory = (path: string) => invoke<WorkspaceInfo>('list_directory', { path });
@@ -45,6 +50,9 @@ function App() {
   const tabMenuRef = useRef<HTMLDivElement>(null);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [dialog, setDialog] = useState<DialogSpec | null>(null);
+  const [gitOpen, setGitOpen] = useState(false);
+  const [terminalStarted, setTerminalStarted] = useState(false);
+  const [terminalVisible, setTerminalVisible] = useState(false);
   const [search, setSearch] = useState(false);
   const [searchDirectory, setSearchDirectory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -153,18 +161,19 @@ function App() {
         message: current.current.root ? label('輸入相對於專案的路徑；父資料夾須已存在。不覆寫既有檔案。', 'Enter a workspace-relative path. Parent folders must exist. Existing files are not overwritten.') : label('輸入完整檔案路徑，父資料夾將成為工作區。不覆寫既有檔案。', 'Enter an absolute file path. Its parent folder becomes the workspace. Existing files are not overwritten.'),
         input: path, placeholder: 'src/new-file.md', choices: [{ id: 'save', label: label('儲存', 'Save') }, { id: 'cancel', label: label('取消', 'Cancel') }] });
       if (result.choice !== 'save' || !result.value.trim()) return false;
-      path = result.value.trim();
+      path = normalizeUserPath(result.value.trim(), isWindows);
       if (saveAs && path === snapshot.path) return saveTab(id);
     }
     const establishingWorkspace = !current.current.root;
-    if (establishingWorkspace && (!path.startsWith('/') || path.endsWith('/'))) {
+    const location = establishingWorkspace ? absoluteFileLocation(path, isWindows) : null;
+    if (establishingWorkspace && !location) {
       setError(label('請輸入完整的檔案路徑。', 'Enter an absolute file path.')); return false;
     }
     const output = await run(async () => {
       if (establishingWorkspace) {
-        const directory = path.slice(0, path.lastIndexOf('/')) || '/';
+        const directory = location!.directory;
         const info = await invoke<WorkspaceInfo>('open_workspace', { path: directory });
-        path = path.slice(path.lastIndexOf('/') + 1);
+        path = location!.name;
         send({ type: 'restore', session: { ...current.current, root: info.root } });
         setRootInput(info.root); setFiles(info.files); setDirectories(info.directories ?? []); recoveryEnabled.current = true;
       }
@@ -220,8 +229,8 @@ function App() {
       choices: [{ id: 'rename', label: label('重新命名', 'Rename') }, { id: 'cancel', label: label('取消', 'Cancel') }] });
     if (result.choice !== 'rename' || result.value === snapshot.path || !result.value.trim()) return;
     await run(async () => {
-      await invoke('rename_file', { path: snapshot.path, destination: result.value.trim(), original: snapshot.original });
-      send({ type: 'renamed', id: snapshot.id, path: result.value.trim() });
+      await invoke('rename_file', { path: snapshot.path, destination: normalizeUserPath(result.value.trim(), isWindows), original: snapshot.original });
+      send({ type: 'renamed', id: snapshot.id, path: normalizeUserPath(result.value.trim(), isWindows) });
       await refresh();
     });
   }
@@ -257,19 +266,21 @@ function App() {
     { id: 'definition', title: label('前往定義', 'Go to Definition'), detail: 'F12', run: () => { void editorRefs.current[focusedPane.current]?.getAction('editor.action.revealDefinition')?.run(); } },
     { id: 'references', title: label('尋找參照', 'Find References'), detail: '⇧F12', run: () => { void editorRefs.current[focusedPane.current]?.getAction('editor.action.referenceSearch.trigger')?.run(); } },
     { id: 'rename-symbol', title: label('重新命名符號', 'Rename Symbol'), detail: 'F2', run: () => { void editorRefs.current[focusedPane.current]?.getAction('editor.action.rename')?.run(); } },
-    { id: 'open', title: label('開啟檔案或專案', 'Open file or workspace'), detail: '⌘O', run: () => { void promptWorkspace(); } },
-    { id: 'new', title: label('新增檔案', 'New file'), detail: '⌘N', run: newFile },
-    { id: 'save', title: label('儲存檔案', 'Save file'), detail: '⌘S', run: () => { if (activeTab) void saveTab(activeTab.id); } },
-    { id: 'save-as', title: label('另存新檔', 'Save As'), detail: '⌘⇧S', run: () => { if (activeTab) void saveTab(activeTab.id, true); } },
+    { id: 'open', title: label('開啟檔案或專案', 'Open file or workspace'), detail: shortcut('⌘O'), run: () => { void promptWorkspace(); } },
+    { id: 'new', title: label('新增檔案', 'New file'), detail: shortcut('⌘N'), run: newFile },
+    { id: 'save', title: label('儲存檔案', 'Save file'), detail: shortcut('⌘S'), run: () => { if (activeTab) void saveTab(activeTab.id); } },
+    { id: 'save-as', title: label('另存新檔', 'Save As'), detail: shortcut('⌘⇧S'), run: () => { if (activeTab) void saveTab(activeTab.id, true); } },
     { id: 'rename', title: label('重新命名目前檔案', 'Rename current file'), run: () => { void renameTab(); } },
     { id: 'reload', title: label('從磁碟重新載入', 'Reload from disk'), run: () => { void reloadTab(); } },
     { id: 'refresh', title: label('重新整理專案檔案', 'Refresh workspace files'), run: () => { void run(refresh); } },
-    { id: 'quick-open', title: label('快速開檔', 'Quick Open'), detail: '⌘P', run: () => showPalette('files') },
-    { id: 'split', title: label('切換左右分割', 'Toggle split editor'), detail: '⌘\\', run: () => {
+    { id: 'quick-open', title: label('快速開檔', 'Quick Open'), detail: shortcut('⌘P'), run: () => showPalette('files') },
+    { id: 'split', title: label('切換左右分割', 'Toggle split editor'), detail: shortcut('⌘\\'), run: () => {
       send({ type: 'setting', key: 'split', value: !state.split }); if (state.split) setPane('primary');
     } },
-    { id: 'search', title: label('搜尋專案內容', 'Search workspace'), detail: '⌘⇧F', run: () => { setSearchDirectory(''); setSearch(true); send({ type: 'setting', key: 'sidebar', value: true }); } },
-    { id: 'sidebar', title: label('切換側邊欄', 'Toggle sidebar'), detail: '⌘B', run: () => send({ type: 'setting', key: 'sidebar', value: !state.sidebar }) },
+    { id: 'git', title: label('開啟 Git 介面', 'Open Git panel'), run: () => { setGitOpen(true); send({ type: 'setting', key: 'sidebar', value: true }); } },
+    { id: 'terminal', title: label('切換終端機', 'Toggle terminal'), detail: shortcut('⌘`'), run: () => { setTerminalStarted(true); setTerminalVisible(value => !value); } },
+    { id: 'search', title: label('搜尋專案內容', 'Search workspace'), detail: shortcut('⌘⇧F'), run: () => { setGitOpen(false); setSearchDirectory(''); setSearch(true); send({ type: 'setting', key: 'sidebar', value: true }); } },
+    { id: 'sidebar', title: label('切換側邊欄', 'Toggle sidebar'), detail: shortcut('⌘B'), run: () => send({ type: 'setting', key: 'sidebar', value: !state.sidebar }) },
     { id: 'preview', title: label('切換 Markdown 預覽', 'Toggle Markdown preview'), run: () => send({ type: 'setting', key: 'preview', value: !state.preview }) },
     { id: 'language', title: label('切換介面語言', 'Switch interface language'), run: () => send({ type: 'setting', key: 'english', value: !state.english }) },
   ];
@@ -395,6 +406,7 @@ function App() {
       : key === 'w' ? () => { if (activeTab) void closeTab(activeTab.id); }
       : key === 'b' ? () => send({ type: 'setting', key: 'sidebar', value: !state.sidebar })
       : key === '\\' ? commands.find(c => c.id === 'split')!.run
+      : key === '`' ? commands.find(c => c.id === 'terminal')!.run
       : key === 'f' && event.shiftKey ? commands.find(c => c.id === 'search')!.run : undefined;
     if (action) { event.preventDefault(); event.stopPropagation(); action(); }
   };
@@ -452,7 +464,7 @@ function App() {
       {tab ? <CodePane key={`${state.root}:${target}`} tab={tab} scope={state.root} readOnly={!ready || working || !!dialog || lspSettingsOpen || closing.current}
         change={(id, text) => send({ type: 'edit', id, text })}
         focused={() => setPane(target)} mounted={editor => { editorRefs.current[target] = editor; if (editor) requestAnimationFrame(applyJump); }} />
-        : <div className="welcome"><h1>Free Code Editor</h1><p>{label('開啟專案，開始編輯。', 'Open a workspace to begin.')}</p><p>⌘O · ⌘P · ⌘⇧P</p></div>}
+        : <div className="welcome"><h1>Free Code Editor</h1><p>{label('開啟專案，開始編輯。', 'Open a workspace to begin.')}</p><p>{shortcut('⌘O · ⌘P · ⌘⇧P')}</p></div>}
     </div>;
   }
 
@@ -465,15 +477,17 @@ function App() {
       <button disabled={!ready || working} onClick={() => { void openWorkspace(); }}>{label('開啟', 'Open')}</button>
       <button disabled={!ready || working} onClick={newFile}>{label('新增', 'New')}</button>
       <button disabled={working || !activeTab} onClick={() => { if (activeTab) void saveTab(activeTab.id); }}>{label('儲存', 'Save')}</button>
-      <button disabled={!ready} onClick={() => showPalette('commands')}>⌘⇧P</button>
+      <button disabled={!ready} onClick={() => showPalette('commands')}>{shortcut('⌘⇧P')}</button>
+      <button disabled={!state.root} onClick={commands.find(c => c.id === 'terminal')!.run}>{label('終端機', 'Terminal')}</button>
       <button title={serviceStatus} onClick={() => { void showLspSettings(); }}>LSP</button>
       <button onClick={() => send({ type: 'setting', key: 'english', value: !state.english })}>繁中 / EN</button>
     </header>
     <main aria-busy={!ready || working}>
       {state.sidebar && <aside className="explorer-sidebar">
-        <div className="sidebar-tabs"><button className={!search ? 'active' : ''} onClick={() => setSearch(false)}>{label('檔案', 'Files')}</button>
-          <button className={search ? 'active' : ''} onClick={() => setSearch(true)}>{label('搜尋', 'Search')}</button></div>
-        {search ? <div className="explorer-search">
+        <div className="sidebar-tabs"><button className={!search && !gitOpen ? 'active' : ''} onClick={() => { setGitOpen(false); setSearch(false); }}>{label('檔案', 'Files')}</button>
+          <button className={search && !gitOpen ? 'active' : ''} onClick={() => { setGitOpen(false); setSearch(true); }}>{label('搜尋', 'Search')}</button><button className={gitOpen ? 'active' : ''} onClick={() => setGitOpen(true)}>Git</button></div>
+        {gitOpen ? <GitPanel key={state.root} root={state.root} english={state.english}
+          compare={(left, right) => setComparison({ left, right })} open={path => { void openFile(path); }} /> : search ? <div className="explorer-search">
           {searchDirectory && <div className="search-scope" title={searchDirectory}>
             <span>{label('搜尋範圍：', 'Folder: ')}{searchDirectory}</span>
             <button onClick={() => setSearchDirectory('')}>{label('整個工作區', 'Entire workspace')}</button>
@@ -503,7 +517,7 @@ function App() {
           <div className="explorer-filter"><input aria-label={label('篩選檔名', 'Filter files')} placeholder={label('篩選檔案與資料夾…', 'Filter files and folders…')}
             value={pathFilter} onChange={e => setPathFilter(e.target.value)} /></div>
           <FileTree key={state.root} root={state.root} files={files} directories={directories} activePath={activeTab?.path ?? ''}
-            findInFolder={path => { setSearchDirectory(path); setResults([]); setSearch(true); }} loadDirectory={loadTreeDirectory} filter={pathFilter} english={state.english} open={path => { void openFile(path); }} disabled={!ready || working} />
+            findInFolder={path => { setGitOpen(false); setSearchDirectory(path); setResults([]); setSearch(true); }} loadDirectory={loadTreeDirectory} filter={pathFilter} english={state.english} open={path => { void openFile(path); }} disabled={!ready || working} />
         </>}
       </aside>}
       <section className="workspace">
@@ -522,6 +536,7 @@ function App() {
           {activeTab && state.preview && (activeTab.language ?? languageForPath(activeTab.path)) === 'markdown' &&
             <MarkdownPreview key={`${state.root}:${activeTab.id}`} text={activeTab.text} document={activeTab.path} english={state.english} report={setError} />}
         </div>
+        {terminalStarted && state.root && <TerminalPanel key={state.root} root={state.root} english={state.english} visible={terminalVisible} hide={() => setTerminalVisible(false)} />}
       </section>
     </main>
     <footer><span role="status">{error || (!ready ? label('復原工作階段…', 'Restoring session…') : working ? label('處理中…', 'Working…') : activeTab?.path || label('就緒', 'Ready'))}</span>

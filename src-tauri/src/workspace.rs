@@ -113,6 +113,16 @@ pub fn rename(root: &Path, path: &str, destination: &str, original: &str) -> Res
     Ok(())
 }
 
+pub fn relative_path(root: &Path, path: &Path) -> Result<String, String> {
+    Ok(path
+        .strip_prefix(root)
+        .map_err(|e| e.to_string())?
+        .iter()
+        .map(|part| part.to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/"))
+}
+
 pub fn resolve(root: &Path, path: &str) -> Result<PathBuf, String> {
     let candidate = root.join(path).canonicalize().map_err(|e| e.to_string())?;
     if !candidate.starts_with(root) {
@@ -190,12 +200,7 @@ pub fn directory(root: &Path, relative: &str) -> Result<Listing, String> {
         if kind.is_symlink() {
             continue;
         }
-        let path = entry
-            .path()
-            .strip_prefix(root)
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .into_owned();
+        let path = relative_path(root, &entry.path())?;
         if kind.is_dir() {
             listing.directories.push(path);
         } else if kind.is_file() {
@@ -231,11 +236,7 @@ fn walk(
             continue;
         }
         let path = entry.path();
-        let relative = path
-            .strip_prefix(root)
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .into_owned();
+        let relative = relative_path(root, &path)?;
         if !visit(relative, kind.is_dir())? {
             return Ok(());
         }
@@ -359,12 +360,7 @@ pub fn search_in_directory(
     };
     let mut matches = Vec::new();
     walk(&scope, &cancelled, |relative, directory| {
-        let path = scope
-            .join(relative)
-            .strip_prefix(root)
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .into_owned();
+        let path = relative_path(root, &scope.join(relative))?;
         if directory {
             return Ok(true);
         }
@@ -422,6 +418,14 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+    #[test]
+    fn frontend_relative_paths_use_forward_slashes_and_keep_unicode() {
+        let f = Fixture::new();
+        let path = f.0.join("src").join("中文.rs");
+        assert_eq!(relative_path(&f.0, &path).unwrap(), "src/中文.rs");
+        let outside = Fixture::new();
+        assert!(relative_path(&f.0, &outside.0.join("file.rs")).is_err());
     }
     #[test]
     fn folder_search_excludes_siblings_and_preserves_workspace_paths() {

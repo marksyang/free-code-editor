@@ -81,6 +81,10 @@ npm run test:desktop:fixture
 | Markdown | 開啟 README.md，切換 `M↓` | 顯示表格、工作清單、程式碼上色及本機圖片；原始 HTML 不執行 |
 | Markdown 清單 | 在清單末尾按 Enter，再於空項目按 Enter | 延續清單／清除勾選；空項目結束清單；程式碼區塊不延續清單 |
 | 資料夾搜尋 | 在檔案樹對資料夾按右鍵，選「在資料夾中搜尋」，輸入關鍵字，再切回整個工作區 | 僅顯示該資料夾及子目錄結果；點選能開啟正確檔案；切回後涵蓋整個工作區；此項尚未實測 |
+| Git 歷史 | 開啟 Git → 歷史，載入更多，選取一般／初始／合併提交及重新命名／刪除檔案 | 作者、時間及訊息正確；分頁不重複；差異使用歷史內容且不改動工作目錄；此項尚未實測 |
+| Git 面板 | 在 repository 根目錄開啟 Git，逐檔暫存／取消暫存、檢視差異並提交 | 分支與狀態正確；HEAD／Index／工作目錄差異正確，未儲存編輯保留；此項尚未實測 |
+| 終端機字型 | 啟動含 Powerline／Git 圖示的 shell 主題 | 本機 Nerd Font 透過 FontFace 載入，符號不再顯示空框；CoreText 已驗證 SauceCodePro 字型檔包含 U+E0B0、U+E0A0、U+F126 字形，WebView 實際顯示尚未實測 |
+| 終端機 | 開啟終端機，執行 pwd、彩色輸出、互動指令與 Ctrl+C，隱藏後重開、重啟及切換工作區 | cwd、ANSI、輸入、縮放、隱藏保留與重啟／切換清理正確；此項尚未實測 |
 | 專案搜尋 | `Cmd+Shift+F` 搜尋 `answer`，點選結果 | 正確開檔並跳到命中位置 |
 | C LSP | 在 LSP 設定確認 clangd，開啟 main.c，游標放在 return 後的 answer，執行前往定義 | 顯示已連線，跳到第一行定義；hover、補全與診斷可依伺服器能力操作 |
 | 符號重新命名 | 在 answer 上按 F2 改名 | 定義與參照更新，保留為未儲存修改；儲存前磁碟保持原內容 |
@@ -89,3 +93,17 @@ npm run test:desktop:fixture
 | 其他語言 | 自行安裝並設定其他語言伺服器，逐一開啟 fixture 檔案 | 每個伺服器的補全、診斷及跳轉分別確認；未安裝者標記未測，不以 clangd 代替 |
 
 驗收記錄應包含日期、macOS／CPU、程式版本、每項結果、錯誤訊息及必要的該程式視窗截圖。沒有畫面或操作證據時，不以「打包成功」填寫為通過。
+
+## Windows／Linux 支援與待驗證狀態
+
+已加入 Windows ConPTY（PowerShell、輸入／輸出獨立執行緒、尺寸同步、Job Object 清理）及 Linux Unix PTY 平台分流。Windows NSIS／MSI 與 Linux DEB／AppImage 使用各平台 Tauri 設定；GitHub Actions workflow 在三平台原生執行測試與打包。
+
+| 平台 | 本次可確認 | 尚未完成 |
+| --- | --- | --- |
+| macOS | Rust 40 項、Node 50 項通過；型別檢查、Clippy、正式建置與 `.app` 打包 | 真實 WebView／桌面互動 |
+| Windows | ConPTY、外部連結、字型與路徑處理原始碼；安裝包設定；已加入 Windows runner 與 ConPTY 服務測試 | 原生編譯／Clippy／測試、NSIS／MSI 產物、WebView2 與桌面互動 |
+| Linux | Unix PTY 分流、xdg-open、字型與打包設定；已加入 Ubuntu runner | 原生編譯／測試、DEB／AppImage 產物、WebKitGTK 與桌面互動 |
+
+目前僅安裝 macOS Rust target，Docker daemon 未啟動，亦未在本次工作中執行遠端 CI。原始碼完成與 workflow 存在均不代表 Windows／Linux 已驗證。
+
+目標平台需另外驗收：非 ASCII 工作區、Windows 磁碟機／UNC 路徑與根目錄另存新檔、檔案樹與搜尋結果跳轉、Git 暫存與提交、npm LSP 啟動器、中文輸入與 Nerd Font、Ctrl+C／互動終端機、關閉／重啟後程序清理、設定恢復及 HTTP(S) 外部連結。Linux 應分別確認 X11／Wayland 環境。

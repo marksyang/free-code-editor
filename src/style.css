@@ -117,3 +117,29 @@ footer select { padding: 2px; border: 0; background: transparent; }
 .compare-labels { display: grid; grid-template-columns: 1fr 1fr; border-block: 1px solid #59616b; }
 .compare-labels span { padding: 7px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .compare-editor { flex: 1; min-height: 0; }
+
+.dev-toolbar { display: flex; align-items: center; gap: 8px; padding: 6px; }
+.dev-toolbar strong { white-space: nowrap; }
+.dev-toolbar span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: #adb5c3; }
+.dev-toolbar button { padding: 4px 7px; }
+.dev-error { white-space: pre-wrap; overflow-wrap: anywhere; color: #ffb4a5; padding: 6px; }
+.terminal-panel { height: 260px; min-height: 160px; max-height: 65vh; flex-shrink: 0; display: flex; flex-direction: column; border-top: 1px solid #59616b; background: #17191f; }
+.terminal-panel[hidden] { display: none; }
+.terminal-host { flex: 1; min-height: 0; overflow: hidden; padding: 4px 8px; }
+.git-panel { overflow: auto; flex: 1; padding: 8px; }
+.git-panel textarea { width: 100%; min-height: 70px; resize: vertical; color: inherit; background: #1b1d23; border: 1px solid #414652; padding: 8px; }
+.git-panel h3 { font-size: 12px; text-transform: uppercase; }
+.git-entry { display: flex; align-items: center; gap: 2px; }
+.git-entry button { padding: 5px; }
+.git-entry .git-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; background: transparent; }
+.git-path code { color: #e3bd8f; }
+
+.git-view-tabs { margin-bottom: 8px; }
+.git-history-list { list-style: none; padding: 0; margin: 0; }
+.git-history-list button { display: block; width: 100%; padding: 9px 6px; background: transparent; text-align: left; border-bottom: 1px solid #3a404b; border-radius: 0; }
+.git-history-list button.active { background: #414855; }
+.git-history-list strong, .git-history-list span, .git-history-list time { display: block; overflow-wrap: anywhere; }
+.git-history-list span, .git-history-list time { margin-top: 3px; color: #b3bbc7; font-size: 11px; }
+.git-commit-details { border-top: 1px solid #59616b; margin-top: 12px; padding-top: 8px; }
+.git-history-file { display: block; width: 100%; text-align: left; overflow-wrap: anywhere; background: transparent; padding: 6px; }
+.git-history-file code { color: #e3bd8f; }

@@ -1,6 +1,13 @@
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
+mod dev_commands;
+mod git_service;
 mod lsp;
 mod lsp_commands;
+mod platform;
 mod session;
+mod terminal;
+mod terminal_font;
 mod workspace;
 
 use serde::Serialize;
@@ -45,6 +52,7 @@ struct WorkspaceInfo {
 async fn open_workspace(
     state: State<'_, Workspace>,
     hub: State<'_, Arc<lsp::Hub>>,
+    terminal: State<'_, Arc<terminal::Manager>>,
     path: String,
 ) -> Result<WorkspaceInfo, String> {
     let path = Path::new(&path).canonicalize().map_err(|e| e.to_string())?;
@@ -78,6 +86,7 @@ async fn open_workspace(
     tauri::async_runtime::spawn_blocking(move || hub.activate_root(&active_root))
         .await
         .map_err(|e| e.to_string())?;
+    terminal.activate(&directory)?;
     *state.0.lock().map_err(|e| e.to_string())? = Some(directory.clone());
     Ok(WorkspaceInfo {
         root: directory.to_string_lossy().into_owned(),
@@ -262,25 +271,10 @@ fn save_session(app: tauri::AppHandle, payload: serde_json::Value) -> Result<(),
 }
 
 #[tauri::command]
-fn open_external(url: String) -> Result<(), String> {
-    if !(url.starts_with("https://") || url.starts_with("http://"))
-        || url.chars().any(char::is_control)
-    {
-        return Err("Only HTTP(S) links are supported".into());
-    }
-    #[cfg(target_os = "macos")]
-    let status = std::process::Command::new("/usr/bin/open")
-        .arg(&url)
-        .status()
-        .map_err(|e| e.to_string())?;
-    #[cfg(not(target_os = "macos"))]
-    return Err("External links currently require macOS".into());
-    #[cfg(target_os = "macos")]
-    if status.success() {
-        Ok(())
-    } else {
-        Err("Unable to open link".into())
-    }
+async fn open_external(url: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || platform::open_external(&url))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 fn main() {
@@ -288,7 +282,21 @@ fn main() {
         .manage(Workspace::default())
         .manage(Arc::new(lsp::Hub::default()))
         .manage(SearchEpoch::default())
+        .manage(Arc::new(terminal::Manager::default()))
         .invoke_handler(tauri::generate_handler![
+            dev_commands::git_status,
+            dev_commands::git_history,
+            dev_commands::git_commit_files,
+            dev_commands::git_history_diff,
+            dev_commands::git_stage,
+            dev_commands::git_commit,
+            dev_commands::git_diff,
+            dev_commands::terminal_start,
+            dev_commands::terminal_font,
+            dev_commands::terminal_write,
+            dev_commands::terminal_poll,
+            dev_commands::terminal_resize,
+            dev_commands::terminal_stop,
             open_workspace,
             read_file,
             save_file,
@@ -317,6 +325,7 @@ fn main() {
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 window.state::<Arc<lsp::Hub>>().stop_all();
+                window.state::<Arc<terminal::Manager>>().stop(None);
             }
         })
         .build(tauri::generate_context!())
@@ -324,6 +333,7 @@ fn main() {
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
                 app.state::<Arc<lsp::Hub>>().stop_all();
+                app.state::<Arc<terminal::Manager>>().stop(None);
             }
         });
 }

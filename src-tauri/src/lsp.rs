@@ -224,20 +224,16 @@ pub struct Client {
 
 impl Client {
     pub fn spawn(root: &Path, config: &ServerConfig, sink: Sink) -> Result<Arc<Self>, String> {
-        let mut command = Command::new(&config.executable);
+        let mut command = Command::new(crate::platform::lsp_executable(&config.executable));
         command
             .args(&config.args)
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let path = std::env::var("PATH").unwrap_or_default();
-        command
-            .env(
-                "PATH",
-                format!("{path}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"),
-            )
-            .envs(&config.env);
+        crate::platform::hide_console(&mut command);
+        crate::platform::lsp_path(&mut command);
+        command.envs(&config.env);
         let mut child = command.spawn().map_err(|e| {
             format!(
                 "Cannot start {}: {e}. Configure an absolute executable path in LSP settings.",
@@ -641,12 +637,12 @@ pub fn file_uri(path: &Path) -> Result<String, String> {
 }
 pub fn uri_path(root: &Path, uri: &str) -> Result<String, String> {
     let url = tauri::Url::parse(uri).map_err(|e| e.to_string())?;
-    if url.scheme() != "file"
-        || url.host_str().is_some_and(|h| h != "localhost")
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
+    if url.scheme() != "file" || url.query().is_some() || url.fragment().is_some() {
         return Err("Unsupported LSP document URI".into());
+    }
+    #[cfg(not(windows))]
+    if url.host_str().is_some_and(|h| h != "localhost") {
+        return Err("Unsupported LSP document host".into());
     }
     let path = url
         .to_file_path()
@@ -656,9 +652,7 @@ pub fn uri_path(root: &Path, uri: &str) -> Result<String, String> {
     if !path.starts_with(root) || !path.is_file() {
         return Err("LSP document outside workspace".into());
     }
-    path.strip_prefix(root)
-        .map(|p| p.to_string_lossy().into_owned())
-        .map_err(|e| e.to_string())
+    crate::workspace::relative_path(root, &path)
 }
 
 #[derive(Default)]
@@ -771,7 +765,7 @@ mod tests {
             let (tx, rx) = mpsc::channel();
             let config = ServerConfig {
                 enabled: true,
-                executable: "python3".into(),
+                executable: if cfg!(windows) { "python" } else { "python3" }.into(),
                 args: vec![
                     "-u".into(),
                     format!(
@@ -914,7 +908,10 @@ mod tests {
             "中文 space.c"
         );
         assert!(uri_path(&f.0, "https://example.com/a.c").is_err());
-        assert!(uri_path(&f.0, &file_uri(Path::new("/etc/hosts")).unwrap()).is_err());
+        let outside = Fixture::new();
+        let path = outside.0.join("outside.c");
+        fs::write(&path, "").unwrap();
+        assert!(uri_path(&f.0, &file_uri(&path).unwrap()).is_err());
     }
     #[test]
     fn settings_validate_and_roundtrip_arguments_without_shell_interpretation() {
@@ -994,7 +991,7 @@ mod tests {
         let second = Fixture::new();
         let mut settings = Settings::default();
         let config = settings.servers.get_mut("cpp").unwrap();
-        config.executable = "python3".into();
+        config.executable = if cfg!(windows) { "python" } else { "python3" }.into();
         config.args = vec![
             "-u".into(),
             format!(
