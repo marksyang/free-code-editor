@@ -1,0 +1,33 @@
+{
+  "name": "free-code-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "desktop": "tauri dev",
+    "bundle": "tauri build",
+    "test": "node --test tests/*.test.mjs",
+    "icons": "tauri icon src-tauri/icons/source.svg --output src-tauri/icons",
+    "test:ui": "npm run build && node scripts/ui-smoke.mjs",
+    "test:desktop:preflight": "node scripts/desktop-preflight.mjs",
+    "test:desktop:fixture": "node scripts/prepare-desktop-fixture.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "react": "^19",
+    "react-dom": "^19",
+    "@monaco-editor/react": "^4",
+    "monaco-editor": "^0.52",
+    "react-markdown": "^10",
+    "remark-gfm": "^4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5",
+    "vite": "^6"
+  }
+}
