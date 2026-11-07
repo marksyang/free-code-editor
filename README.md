@@ -170,3 +170,7 @@ npm run test:ui
 - `scripts/`：選用的 Chrome 煙霧測試、macOS 桌面前置檢查及獨立測試資料產生器。
 
 圖示原始檔為 `src-tauri/icons/source.svg`，PNG、ICNS 與 ICO 一起保存。修改後執行 `npm run icons` 重新產生。
+
+## 授權
+
+本專案採用 [MIT License](LICENSE)。第三方依賴仍依各自的授權條款使用。
