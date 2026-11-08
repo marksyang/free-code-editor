@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, chmod
 import { tmpdir } from 'node:os';
 import { join, basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { prepareReleaseAssets } from '../scripts/prepare-release-assets.mjs';
 
 function fixture(t) {
@@ -53,3 +54,33 @@ test('release versions and tag checks reject mismatched tags', () => {
   assert.notEqual(mismatch.status, 0);
   assert.match(mismatch.stderr, /Tag must match/);
 });
+
+for (const newline of ['LF', 'CRLF', 'mixed']) {
+  test(`release version check accepts ${newline} TOML line endings`, t => {
+    const root = mkdtempSync(join(tmpdir(), 'editor-version-'));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    mkdirSync(join(root, 'src-tauri'));
+    for (const file of ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock']) {
+      let content = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
+      if (newline === 'CRLF' || (newline === 'mixed' && file.endsWith('Cargo.lock'))) content = content.replaceAll('\n', '\r\n');
+      writeFileSync(join(root, file), content);
+    }
+    const script = fileURLToPath(new URL('../scripts/check-version.mjs', import.meta.url));
+    const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version;
+    const env = { ...process.env, GITHUB_REF_TYPE: 'tag', GITHUB_REF_NAME: `v${version}` };
+    const result = spawnSync(process.execPath, [script], { cwd: root, env, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert(result.stdout.includes(`Version verified: ${version}`));
+    // A real mismatch must still fail after newline normalization.
+    const lock = join(root, 'src-tauri/Cargo.lock');
+    const content = readFileSync(lock, 'utf8').replace(/(name = "free-code-editor"\r?\nversion = ")[^"]+/, '$1999.0.0');
+    writeFileSync(lock, content);
+    const mismatch = spawnSync(process.execPath, [script], { cwd: root, env, encoding: 'utf8' });
+    assert.notEqual(mismatch.status, 0);
+    assert.match(mismatch.stderr, /src-tauri\/Cargo\.lock=999\.0\.0/);
+    writeFileSync(lock, content.replace('name = "free-code-editor"', 'name = "another-package"'));
+    const missing = spawnSync(process.execPath, [script], { cwd: root, env, encoding: 'utf8' });
+    assert.notEqual(missing.status, 0);
+    assert.match(missing.stderr, /src-tauri\/Cargo\.lock=<missing>/);
+  });
+}

@@ -172,7 +172,7 @@ rustc --edition=2021 --test src-tauri/src/workspace.rs -o /private/tmp/free-code
 /private/tmp/free-code-editor-workspace-tests
 ```
 
-2026-11-08：Node 測試 54 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 42 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
+2026-11-08：Node 測試 57 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 42 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
 
 LSP 的 Rust 測試透過 Python 3 stdio 假伺服器驗證訊息分段、UTF-8 長度、同步、儲存、取消、逾時、退出與程序生命週期，並在本機 `/usr/bin/clangd` 存在時實測初始化及 C 定義查詢。需要 Python 3。
 
