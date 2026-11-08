@@ -1,5 +1,11 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod ai;
+mod ai_credentials;
+mod ai_process;
+mod ai_runtime;
+mod ai_tools;
+mod ai_transport;
 mod dev_commands;
 mod git_service;
 mod lsp;
@@ -51,6 +57,7 @@ struct WorkspaceInfo {
 
 #[tauri::command]
 async fn open_workspace(
+    app: tauri::AppHandle,
     state: State<'_, Workspace>,
     hub: State<'_, Arc<lsp::Hub>>,
     terminal: State<'_, Arc<terminal::Manager>>,
@@ -82,6 +89,7 @@ async fn open_workspace(
         tauri::async_runtime::spawn_blocking(move || workspace::directory(&list_root, ""))
             .await
             .map_err(|e| e.to_string())??;
+    app.state::<Arc<ai_runtime::Manager>>().stop_and_wait()?;
     let hub = hub.inner().clone();
     let active_root = directory.clone();
     tauri::async_runtime::spawn_blocking(move || hub.activate_root(&active_root))
@@ -316,10 +324,24 @@ async fn open_external(url: String) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .manage(Workspace::default())
+        .manage(Arc::new(ai_runtime::Manager::default()))
         .manage(Arc::new(lsp::Hub::default()))
         .manage(SearchEpoch::default())
         .manage(Arc::new(terminal::Manager::default()))
         .invoke_handler(tauri::generate_handler![
+            ai_runtime::ai_start,
+            ai_runtime::ai_stop,
+            ai_runtime::ai_cancel,
+            ai_runtime::ai_approve,
+            ai_runtime::ai_history,
+            ai_runtime::ai_clear_history,
+            ai_runtime::ai_set_key,
+            ai_runtime::ai_delete_key,
+            ai_runtime::ai_has_key,
+            ai_runtime::ai_test_connection,
+            ai_runtime::ai_availability,
+            ai::load_ai_settings,
+            ai::save_ai_settings,
             dev_commands::git_status,
             dev_commands::git_history,
             dev_commands::git_commit_files,
@@ -361,6 +383,7 @@ fn main() {
         ])
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = window.state::<Arc<ai_runtime::Manager>>().stop_and_wait();
                 window.state::<Arc<lsp::Hub>>().stop_all();
                 window.state::<Arc<terminal::Manager>>().stop(None);
             }
@@ -369,6 +392,7 @@ fn main() {
         .expect("Unable to start editor")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                let _ = app.state::<Arc<ai_runtime::Manager>>().stop_and_wait();
                 app.state::<Arc<lsp::Hub>>().stop_all();
                 app.state::<Arc<terminal::Manager>>().stop(None);
             }

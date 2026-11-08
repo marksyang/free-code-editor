@@ -143,3 +143,19 @@ footer select { padding: 2px; border: 0; background: transparent; }
 .git-commit-details { border-top: 1px solid #59616b; margin-top: 12px; padding-top: 8px; }
 .git-history-file { display: block; width: 100%; text-align: left; overflow-wrap: anywhere; background: transparent; padding: 6px; }
 .git-history-file code { color: #e3bd8f; }
+
+.ai-panel { width: 340px; min-width: 260px; overflow: auto; padding: 12px; border-left: 1px solid #555; }
+.ai-panel header { display: flex; justify-content: space-between; align-items: center; }
+.ai-panel label { display: block; margin: 12px 0; }
+.ai-panel input { display: block; width: 100%; box-sizing: border-box; }
+.ai-panel p { font-size: 13px; line-height: 1.6; }
+
+.ai-panel { width: 380px; min-width: 300px; max-width: 45vw; display: flex; flex-direction: column; gap: 8px; }
+.ai-panel fieldset { min-width: 0; }
+.ai-panel input[type="checkbox"] { display: inline-block; width: auto; margin-right: 6px; }
+.ai-panel textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.ai-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 320px; overflow: auto; }
+.ai-messages { max-height: 45vh; overflow: auto; }
+.ai-messages article { padding: 8px 0; border-bottom: 1px solid #555; }
+.ai-approval, .ai-authorization { border: 1px solid #b68c44; padding: 8px; }
+.ai-panel summary { cursor: pointer; }

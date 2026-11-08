@@ -123,3 +123,15 @@ npm run test:desktop:fixture
 macOS Rust 46 項、Node 60 項通過（另 1 項 Make 測試略過）。服務測試涵蓋 Big5、GBK、GB18030 無損讀寫、CRLF、無法表示字元拒絕覆寫、搜尋、Git 差異與 100 MiB 邊界；前端狀態測試涵蓋編碼恢復與 LSP 跨檔編輯保留編碼。
 
 待真實桌面驗收：開啟 Big5／GBK 檔並選編碼、修改儲存後以外部工具核對 bytes、另存轉碼、搜尋及 Git 差異選編碼、切換 minimap 後重啟、100 MiB 檔的開啟與編輯效能，以及超出 32 MiB 工作階段備份的錯誤提示。Windows／Linux 原生轉碼與 GUI 仍待 CI／目標平台驗證。
+
+### AI Agent（2026-11-09）
+
+已整合 Rust 任務迴圈、相容 API／Ollama 串流連線、系統憑證庫介面、每工作區歷史、文件工具、獨立 shell、自動模式授權、逐次批准與 Monaco 差異預覽。HTTP 使用系統 curl；憑證不出現在 process argv、設定或對話中。
+
+已驗證的範圍：以注入的模型回應驅動原生 Agent，讀檔後修改兩檔並執行真正 shell 指令，檢查事件序號與歷史往返；以真實 Python 子程序提供 SSE fixture，檢查 stdin 憑證傳遞與中文分段。另測試拒絕、取消、逾時、輸出上限、關閉 stdout 的子程序、忽略規則、符號連結、未儲存文件、外部衝突、部分失敗與 Big5／CRLF 保留。這些測試使用測試副本，不操作使用者的憑證庫。
+
+本環境 localhost:11434 沒有 Ollama，且建立 loopback HTTP fixture 時回傳 EPERM；因此未驗證實際 curl→HTTP 模型服務。也沒有可用的真實桌面圖形工作階段，不能將原生測試及打包視為完整 UI 驗收。
+
+待人工驗收：啟動 Ollama 或設定相容 API，測試串流與工具呼叫；分別以確認與自動模式完成雙檔修改和測試；拒絕與取消後確認無後續操作；API Key 保存、重啟載入與刪除；檢查每工作區對話隔離、清除、關閉期間停止程序；在 Windows／Linux 重跑原生測試及 UI 驗收。
+
+2026-11-09 本機驗證：Rust 56 項通過，Node 63 項通過、1 項 Make 測試略過；格式、all-targets Clippy、TypeScript／Vite 及 macOS `.app` 打包通過。

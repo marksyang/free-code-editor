@@ -9,6 +9,7 @@ import { languageForPath, languageIds, editorModelPath } from './languages';
 import { editorReducer, initialSession, normalizeSession, isDirty, fuzzyPaths, closeSnapshot, recoverTab } from './editor-state';
 import type { Action, Session, Tab } from './editor-state';
 import { comparisonForPath } from './compare-files';
+import { AiPanel } from './AiPanel';
 import { GitPanel } from './GitPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { CompareView } from './CompareView';
@@ -41,6 +42,7 @@ function App() {
   const [files, setFiles] = useState<string[]>([]);
   const [directories, setDirectories] = useState<string[]>([]);
   const [rootInput, setRootInput] = useState('');
+  const [aiOpen, setAiOpen] = useState(false);
   const [error, setError] = useState('');
   const [working, setWorking] = useState(false);
   const [ready, setReady] = useState(false);
@@ -72,6 +74,7 @@ function App() {
   const current = useRef(state);
   current.current = state;
   const busy = useRef(false);
+  const aiBusy = useRef(false);
   const closing = useRef(false);
   const recoveryEnabled = useRef(true);
   const dialogDone = useRef<((result: DialogResult) => void) | null>(null);
@@ -412,7 +415,12 @@ function App() {
 
   const actions = useRef({ requestClose: async () => {}, keydown: (_event: KeyboardEvent) => {} });
   actions.current.requestClose = async () => {
-    if (!ready || closing.current || busy.current) return;
+    if (!ready || closing.current) return;
+    if (aiBusy.current) {
+      try { await invoke('ai_stop'); aiBusy.current = false; busy.current = false; setWorking(false); }
+      catch (error) { setError(String(error)); return; }
+    }
+    if (busy.current) return;
     if (comparison) { setComparison(null); return; }
     if (lspSettingsOpen) { setLspSettingsOpen(false); return; }
     closing.current = true;
@@ -552,6 +560,7 @@ function App() {
       </aside>}
       <section className="workspace">
         <nav>
+          <button aria-pressed={aiOpen} disabled={working} onClick={() => setAiOpen(!aiOpen)}>AI</button>
           {state.tabs.map(tab => <div className={`tab ${activeId === tab.id ? 'active' : ''}`} key={tab.id}
             onContextMenu={event => { if (!ready || working) return; event.preventDefault(); setTabMenu({ id: tab.id, x: Math.max(0, Math.min(event.clientX, window.innerWidth - 280)), y: Math.max(0, Math.min(event.clientY, window.innerHeight - 100)) }); }}>
             <button title={tab.path} onClick={() => focusTab(tab.id)}>{tab.path.split('/').pop() || label('未命名', 'Untitled')}{isDirty(tab) ? ' ●' : ''}</button>
@@ -569,6 +578,24 @@ function App() {
         </div>
         {terminalStarted && state.root && <TerminalPanel key={state.root} root={state.root} english={state.english} visible={terminalVisible} hide={() => setTerminalVisible(false)} />}
       </section>
+      {aiOpen && <AiPanel key={state.root} root={state.root} close={() => setAiOpen(false)}
+        snapshot={() => { const editor = editorRefs.current[focusedPane.current]; const selection = editor?.getSelection(); return { tabs: current.current.tabs, active: current.current.tabs.find(tab => tab.id === (focusedPane.current === 'secondary' && current.current.split ? current.current.secondary : current.current.active)), selection: selection && editor?.getModel()?.getValueInRange(selection) || '' }; }}
+        running={value => {
+          if (value) { if (busy.current) throw new Error('請等待目前操作完成'); aiBusy.current = true; }
+          else if (!aiBusy.current) return;
+          else aiBusy.current = false;
+          busy.current = value; setWorking(value);
+        }}
+        completed={async deleted => {
+          const workspace = current.current.root;
+          for (const tab of [...current.current.tabs]) {
+            if (!tab.path || isDirty(tab)) continue;
+            if (deleted.includes(tab.path)) { send({ type: 'close', id: tab.id }); continue; }
+            try { const doc = await readDocument(tab.path, tab.encoding); if (current.current.root === workspace) send({ type: 'reload', id: tab.id, ...doc }); }
+            catch (error) { setError(String(error)); }
+          }
+          if (current.current.root === workspace) { await refresh(); setIndexedFiles([]); }
+        }} />}
     </main>
     <footer><span role="status">{error || (!ready ? label('復原工作階段…', 'Restoring session…') : working ? label('處理中…', 'Working…') : activeTab?.path || label('就緒', 'Ready'))}</span>
       {activeTab && <select aria-label={label('檔案語言', 'File language')} value={activeTab.language ?? 'auto'} onChange={e => send({ type: 'language', id: activeTab.id, language: e.target.value === 'auto' ? null : e.target.value })}>

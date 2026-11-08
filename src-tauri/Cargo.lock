@@ -819,9 +819,11 @@ dependencies = [
 name = "free-code-editor"
 version = "1.0.1"
 dependencies = [
+ "glob",
  "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
 ]

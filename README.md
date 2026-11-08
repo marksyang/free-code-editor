@@ -2,7 +2,7 @@
 
 版本：**1.0.1**；發行說明見 [v1.0.1](docs/releases/v1.0.1.md)。
 
-Rust / Tauri 2 + React / TypeScript / Monaco 桌面編輯器，包含 macOS、Windows 與 Linux 的平台實作及建置設定。Windows／Linux 原生驗證尚待對應 CI 執行。專案仍在開發中，已加入 LSP 語言智慧功能，AI 功能尚未完成。
+Rust / Tauri 2 + React / TypeScript / Monaco 桌面編輯器，包含 macOS、Windows 與 Linux 的平台實作及建置設定。Windows／Linux 原生驗證尚待對應 CI 執行。專案仍在開發中，已加入 LSP 語言智慧功能與 AI Agent，可連接相容 API 與本機 Ollama。
 
 ## 開發與建置
 
@@ -156,7 +156,7 @@ macOS 已有 `clangd` 時可用 `command -v clangd` 確認位置。C／C++ 專�
 - 儲存前比對原內容，再以同目錄暫存檔替換並保留權限；可偵測已發生的外部修改，但尚未消除外部程式在比對與替換之間寫入的競態。
 - 本機圖片限制於工作區、上限 2 MiB；未儲存文件須先儲存，SVG 圖片不載入。只有使用者點擊的 HTTP(S) 連結會交由系統瀏覽器開啟。
 - 工作階段約在操作停止 700ms 後備份至 macOS 的 `~/Library/Application Support/dev.freecode.editor/session.json`，以使用者私有權限保存。備份包含未儲存的原始碼純文字，總上限 32 MiB；100 MiB 檔案不保證能納入工作階段備份，備份超限會回報錯誤。異常中止可能遺失最近尚未備份的輸入；備份損毀時顯示錯誤並保留原檔。
-- 尚未完成：AI 連線／Keychain／串流聊天／行內補全／Agent、即時檔案監看、完整雙語錯誤訊息及自訂快捷鍵。尚未提供 HTML／PDF 匯出或除錯器。
+- 尚未完成：輸入時的 AI 行內補全、即時檔案監看、完整雙語錯誤訊息及自訂快捷鍵。尚未提供 HTML／PDF 匯出或除錯器。
 
 ## 測試與驗證
 
@@ -174,7 +174,7 @@ rustc --edition=2021 --test src-tauri/src/workspace.rs -o /private/tmp/free-code
 /private/tmp/free-code-editor-workspace-tests
 ```
 
-2026-11-08：Node 測試 60 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 46 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
+2026-11-09：Node 測試 63 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 56 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
 
 LSP 的 Rust 測試透過 Python 3 stdio 假伺服器驗證訊息分段、UTF-8 長度、同步、儲存、取消、逾時、退出與程序生命週期，並在本機 `/usr/bin/clangd` 存在時實測初始化及 C 定義查詢。需要 Python 3。
 
@@ -232,3 +232,24 @@ macOS 使用 Command，Windows／Linux 使用 Ctrl；命令面板會顯示對應
 Windows ConPTY 的 CI 測試會等待 PowerShell 初始提示字元後才輸入命令，並以跨讀取保留狀態的 VT peer 處理 ANSI 與游標查詢，避免直接比對原始輸出。啟動與命令回應各有 30 秒期限；失敗時回報是否已送出命令、shell 是否退出及輸出尾端。Windows Rust 測試採單執行緒，保留十萬檔案測試並避免與 shell 啟動競爭 I/O。此修正已在 macOS 驗證共用 VT peer，Windows ConPTY 本身仍須重新執行 CI 確認。
 
 Windows ConPTY 啟動時設定 `STARTF_USESTDHANDLES` 並清空 stdin／stdout／stderr，避免 CI 或輸出重新導向時沿用父程序的管線／EOF，導致 PowerShell 在提示字元出現前退出。修正方式與 [Microsoft node-pty 的實作](https://github.com/microsoft/node-pty/blob/main/src/win/conpty.cc) 一致；新增 Windows 子程序回歸測試，明確使用空 stdin 與被捕捉的 stdout／stderr 執行實際 ConPTY 測試。失敗診斷包含 Windows 退出碼（十進位與十六進位），終端機面板亦顯示退出碼。Windows 原生結果仍須 CI 重跑確認。
+
+## AI 開發 Agent
+
+分頁列按 **AI** 開啟面板，在「模型與憑證設定」填入 API Base URL 與模型名稱，再按「測試連線」。支援 OpenAI 相容 Chat Completions 串流與工具呼叫；Ollama 預設 `http://localhost:11434/v1`，須先自行啟動 Ollama 並安裝具工具呼叫能力的模型。模型不支援工具時勾選「只聊天」。遠端 endpoint 須使用 HTTPS，URL 不可含帳密、query 或 fragment。
+
+- **確認模式（預設）**：自動列目錄、搜尋與讀檔；每批新增／替換／刪除先檢視差異並批准，每條 shell 命令逐次確認。拒絕會回傳給模型，不會執行該操作。
+- **自動模式**：每次任務另行勾選授權，允許自動修改與任意命令；不跨任務或重啟保存授權。命令以目前帳號執行，可存取工作區外檔案及網路，並不是 sandbox。
+- 可附加選取文字，無選取時附加目前文件；最多 16 KiB，未勾選不自動附加整份文件。工具可按任務需要搜尋工作區，並顯示請求及結果。未儲存分頁的讀取採目前快照；修改該分頁或執行命令前需先保存／捨棄編輯。任務期間編輯器暫停編輯，結束後重新載入乾淨分頁與檔案樹。
+- 文件工具拒絕工作區外路徑、符號連結、`.git`、建置目錄、`.env*`、私鑰與常見憑證設定。遵循各層 `.gitignore` 與根目錄 `.aiignore` 的 glob／`!` 規則；不支援的跳脫或無效 pattern 採保守排除，不等同完整 Git ignore parser。不能重新包含已排除父目錄下的檔案。終端命令不受文件工具的排除規則約束。
+- 修改前需讀取原檔，保存前再比對外部變更；保留 Big5／GBK／GB18030 編碼、原有 CRLF 及檔案權限，新檔使用 UTF-8。批次逐檔回報成功／失敗，沒有整批交易或自動撤銷。新檔的父目錄須存在；可另以已批准的命令建立資料夾。
+- 「停止任務」中止模型請求與命令程序樹；切換工作區或正常退出也會停止。停止不撤銷已完成修改。程序採 Unix process group／Windows Job Object，與使用者既有終端機分開。
+
+API Key 僅在 Rust 後端使用，不回傳介面、不寫進設定或對話。預設只放記憶體；勾選保存時使用 macOS Keychain、Windows Credential Manager、Linux Secret Service。Linux 需有可用的登入 keyring 與 `secret-tool`（Ubuntu／Debian 套件 `libsecret-tools`）。憑證庫不可用時顯示錯誤，可取消勾選改用記憶體；不降級成明文檔。
+
+HTTP 由 Rust 管理系統 `curl` 子程序，憑證及請求經 stdin 傳送，不放在 argv；停用 curl 使用者設定及重新導向。macOS／Windows 10+ 通常有系統 curl；Linux 需安裝 curl。介面會檢查是否可執行。此實作不依賴額外的 Rust HTTP／憑證套件。
+
+設定位於應用程式資料目錄的 `ai-settings.json`；工作區對話、工具請求及結果保存在 `ai-history/<workspace-hash>.json`，Unix 檔案採私有權限。重啟不自動續跑，可用「清除本機對話」清除。這些紀錄含使用者提供的程式碼及工具輸出。
+
+容量：每次任務最多 30 輪；命令預設 120 秒，可設 1–3600 秒；模型連線最多 120 秒。單次文件讀取／修改及工具參數／結果上限 256 KiB，命令輸出 256 KiB；工具讀取限制不改變編輯器的 100 MiB 開檔上限。搜尋最多 100 筆、走訪最多 100,000 項，目錄列舉最多 500 項，超限回傳截斷資訊。每次模型請求的對話內容預算 64 KiB，本機歷史上限 8 MiB；超限明確報錯，需縮小內容或清除對話，不自動丟棄舊內容。
+
+目前本機驗證包含 Rust 原生 Agent 迴圈、兩檔修改與實際 shell 指令、程序型串流 fixture、中文 SSE、批准拒絕／取消／逾時、路徑排除、外部衝突及 Big5／CRLF。尚未提供輸入時的 AI 行內補全、MCP、網頁瀏覽或多 Agent。真實模型、系統憑證庫讀寫及三平台桌面操作尚待目標環境驗收，詳見 [桌面驗證紀錄](docs/desktop-verification.md)。
