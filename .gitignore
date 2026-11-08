@@ -5,3 +5,4 @@ src-tauri/target/
 .env
 .env.*
 src-tauri/gen/
+release-assets/
