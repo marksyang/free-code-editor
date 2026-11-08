@@ -19,6 +19,7 @@ use std::{
     },
 };
 use tauri::{Manager, State};
+use workspace::text_encoding::Encoding;
 
 #[derive(Default)]
 struct Workspace(Mutex<Option<PathBuf>>);
@@ -104,17 +105,43 @@ async fn read_file(state: State<'_, Workspace>, path: String) -> Result<String, 
         .map_err(|e| e.to_string())?
 }
 
+#[derive(Serialize)]
+struct TextDocument {
+    text: String,
+    encoding: String,
+}
+#[tauri::command]
+async fn read_document(
+    state: State<'_, Workspace>,
+    path: String,
+    encoding: Option<String>,
+) -> Result<TextDocument, String> {
+    let root = root(&state)?;
+    let encoding = Encoding::parse(encoding.as_deref())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(TextDocument {
+            text: workspace::read_encoded(&root, &path, encoding)?,
+            encoding: encoding.label().into(),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 #[tauri::command]
 async fn save_file(
     state: State<'_, Workspace>,
     path: String,
     original: String,
     content: String,
+    encoding: Option<String>,
 ) -> Result<(), String> {
     let root = root(&state)?;
-    tauri::async_runtime::spawn_blocking(move || workspace::save(&root, &path, &original, &content))
-        .await
-        .map_err(|e| e.to_string())?
+    let encoding = Encoding::parse(encoding.as_deref())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace::save_encoded(&root, &path, &original, &content, encoding)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -122,11 +149,15 @@ async fn create_file(
     state: State<'_, Workspace>,
     path: String,
     content: String,
+    encoding: Option<String>,
 ) -> Result<(), String> {
     let root = root(&state)?;
-    tauri::async_runtime::spawn_blocking(move || workspace::create(&root, &path, &content))
-        .await
-        .map_err(|e| e.to_string())?
+    let encoding = Encoding::parse(encoding.as_deref())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        workspace::create_encoded(&root, &path, &content, encoding)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -135,10 +166,12 @@ async fn rename_file(
     path: String,
     destination: String,
     original: String,
+    encoding: Option<String>,
 ) -> Result<(), String> {
     let root = root(&state)?;
+    let encoding = Encoding::parse(encoding.as_deref())?;
     tauri::async_runtime::spawn_blocking(move || {
-        workspace::rename(&root, &path, &destination, &original)
+        workspace::rename_encoded(&root, &path, &destination, &original, encoding)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -202,16 +235,19 @@ async fn search_files(
     query: String,
     case_sensitive: bool,
     directory: Option<String>,
+    encoding: Option<String>,
 ) -> Result<Vec<SearchMatch>, String> {
     let root = root(&state)?;
+    let encoding = Encoding::parse(encoding.as_deref())?;
     let cancellation = epoch.0.clone();
     let version = cancellation.fetch_add(1, Ordering::SeqCst) + 1;
     tauri::async_runtime::spawn_blocking(move || {
-        workspace::search_in_directory(
+        workspace::search_encoded(
             &root,
             directory.as_deref().unwrap_or(""),
             &query,
             case_sensitive,
+            encoding,
             || cancellation.load(Ordering::SeqCst) != version,
         )
         .map(|matches| {
@@ -299,6 +335,7 @@ fn main() {
             dev_commands::terminal_stop,
             open_workspace,
             read_file,
+            read_document,
             save_file,
             create_file,
             rename_file,

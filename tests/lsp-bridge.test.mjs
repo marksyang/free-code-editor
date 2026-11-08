@@ -64,7 +64,8 @@ async function fixture(t, overrides = {}) {
   const client = new LspBridge({
     state: () => state,
     change: (id, text) => { state.tabs.find(t => t.id === id).text = text; },
-    insert(path, text) { let tab = state.tabs.find(t => t.path === path); if (!tab) { tab = { id: `insert-${++id}`, path, text, original: text, language: null }; state.tabs.push(tab); } return tab; },
+    read: overrides.read,
+    insert(path, text, encoding) { let tab = state.tabs.find(t => t.path === path); if (!tab) { tab = { id: `insert-${++id}`, path, text, original: text, language: null, ...(encoding ? { encoding } : {}) }; state.tabs.push(tab); } return tab; },
     open: async () => {},
   }, status => statuses.push(status));
   client.register();
@@ -201,4 +202,19 @@ test('Rust, JSON and Perl providers synchronize the correct language and use con
     assert.equal(sync.args.language, language); assert.equal(sync.args.path, path);
     if (language === 'json') { assert.equal(f.modes.json.hovers, false); f.client.clear(); assert.equal(f.modes.json.hovers, true); }
   }
+});
+
+test('cross-file LSP edits retain the selected legacy file encoding', async t => {
+  const edit = { range: { start: { line: 0, character: 4 }, end: { line: 0, character: 8 } }, newText: 'renamed' };
+  const f = await fixture(t, {
+    read: async () => ({ text: 'int name; // 中文', encoding: 'big5' }),
+    invoke(command) { if (command === 'lsp_request') return { changes: { 'file:///workspace/header.h': [edit] } }; },
+  });
+  if (!f) return;
+  const result = await f.providers['c:Rename'].provideRenameEdits(f.model, { lineNumber: 1, column: 5 }, 'renamed', f.token);
+  assert.equal(result.edits.length, 1);
+  const inserted = f.state.tabs.find(tab => tab.path === 'header.h');
+  assert.equal(inserted.encoding, 'big5');
+  assert.equal(inserted.original, 'int name; // 中文');
+  assert.equal(f.calls.filter(call => call.command === 'save_file').length, 0);
 });

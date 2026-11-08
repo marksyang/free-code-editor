@@ -147,13 +147,15 @@ macOS 已有 `clangd` 時可用 `command -v clangd` 確認位置。C／C++ 專�
 
 重新命名、從磁碟重新載入、重新整理檔案樹及 Markdown 預覽開關可由命令面板操作。
 
+工具列或命令面板可開關 minimap，設定會隨工作階段保存。
+
 ## 資料與限制
 
-- 文字檔以 UTF-8 為主，上限 8 MiB；工作區不設固定項目數上限，後端已以 100,011 個檔案驗證列舉、快速開檔索引與全文搜尋；檔案樹按需載入資料夾，快速開檔首次開啟時建立完整索引，全文搜尋逐檔掃描（最多 500 筆結果），最多開啟 100 個分頁。檔案樹的篩選僅涵蓋已載入的目錄；搜尋整個工作區的檔名請使用快速開檔（⌘P）。排除 `.git`、`node_modules`、`target`、`dist`、`.venv`、`__pycache__` 與符號連結；尚未完整解析 `.gitignore`。
+- 文字檔支援 UTF-8、Big5／CP950、GBK／CP936（相容 GB2312）及 GB18030，單檔上限 100 MiB（104,857,600 bytes，以磁碟編碼後大小計算）。非 UTF-8 檔案開啟時選擇編碼；狀態列可依指定編碼重新載入，另存新檔可轉換編碼。儲存保留原編碼，無法表示的字元會拒絕寫入；不以替代字元覆寫資料。搜尋與 Git 差異各有編碼選項。UTF-16／UTF-32 尚不支援。工作區不設固定項目數上限，後端已以 100,011 個檔案驗證列舉、快速開檔索引與全文搜尋；檔案樹按需載入資料夾，快速開檔首次開啟時建立完整索引，全文搜尋逐檔掃描（最多 500 筆結果），最多開啟 100 個分頁。檔案樹的篩選僅涵蓋已載入的目錄；搜尋整個工作區的檔名請使用快速開檔（⌘P）。排除 `.git`、`node_modules`、`target`、`dist`、`.venv`、`__pycache__` 與符號連結；尚未完整解析 `.gitignore`。
 - 新增與重新命名的路徑限制於工作區。重新命名使用同檔案系統的硬連結避免覆寫目的檔，跨檔案系統時會回報錯誤。
 - 儲存前比對原內容，再以同目錄暫存檔替換並保留權限；可偵測已發生的外部修改，但尚未消除外部程式在比對與替換之間寫入的競態。
 - 本機圖片限制於工作區、上限 2 MiB；未儲存文件須先儲存，SVG 圖片不載入。只有使用者點擊的 HTTP(S) 連結會交由系統瀏覽器開啟。
-- 工作階段約在操作停止 700ms 後備份至 macOS 的 `~/Library/Application Support/dev.freecode.editor/session.json`，以使用者私有權限保存。備份包含未儲存的原始碼純文字，總上限 32 MiB。異常中止可能遺失最近尚未備份的輸入；備份損毀時顯示錯誤並保留原檔。
+- 工作階段約在操作停止 700ms 後備份至 macOS 的 `~/Library/Application Support/dev.freecode.editor/session.json`，以使用者私有權限保存。備份包含未儲存的原始碼純文字，總上限 32 MiB；100 MiB 檔案不保證能納入工作階段備份，備份超限會回報錯誤。異常中止可能遺失最近尚未備份的輸入；備份損毀時顯示錯誤並保留原檔。
 - 尚未完成：AI 連線／Keychain／串流聊天／行內補全／Agent、即時檔案監看、完整雙語錯誤訊息及自訂快捷鍵。尚未提供 HTML／PDF 匯出或除錯器。
 
 ## 測試與驗證
@@ -172,7 +174,7 @@ rustc --edition=2021 --test src-tauri/src/workspace.rs -o /private/tmp/free-code
 /private/tmp/free-code-editor-workspace-tests
 ```
 
-2026-11-08：Node 測試 57 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 42 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
+2026-11-08：Node 測試 60 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 46 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
 
 LSP 的 Rust 測試透過 Python 3 stdio 假伺服器驗證訊息分段、UTF-8 長度、同步、儲存、取消、逾時、退出與程序生命週期，並在本機 `/usr/bin/clangd` 存在時實測初始化及 C 定義查詢。需要 Python 3。
 

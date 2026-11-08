@@ -21,6 +21,8 @@ import { serverKey } from './lsp-protocol';
 import type { LspSettings as LspSettingsData } from './lsp-protocol';
 import { Dialog, Palette } from './Overlays';
 import type { DialogSpec, DialogResult, PaletteEntry } from './Overlays';
+import { encodingChoices } from './text-encoding';
+import type { TextEncoding, TextDocument } from './text-encoding';
 import { absoluteFileLocation, normalizeUserPath, shortcutLabel } from './platform';
 import './style.css';
 const isWindows = navigator.platform.startsWith('Win');
@@ -55,6 +57,7 @@ function App() {
   const [terminalVisible, setTerminalVisible] = useState(false);
   const [search, setSearch] = useState(false);
   const [searchDirectory, setSearchDirectory] = useState('');
+  const [searchEncoding, setSearchEncoding] = useState<TextEncoding>('utf8');
   const [searchQuery, setSearchQuery] = useState('');
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [results, setResults] = useState<SearchMatch[]>([]);
@@ -99,7 +102,7 @@ function App() {
     if (!left) return;
     try {
       const workspace = current.current.root;
-      const result = await comparisonForPath(left, path, current.current.tabs, path => invoke<string>('read_file', { path }));
+      const result = await comparisonForPath(left, path, current.current.tabs, async path => (await readDocument(path)).text);
       if (current.current.root === workspace && current.current.tabs.some(tab => tab.id === left.id)) setComparison(result);
     } catch (error) { setError(String(error)); }
   }
@@ -124,8 +127,26 @@ function App() {
     busy.current = true;
     setWorking(true);
     try { setError(''); return await operation(); }
-    catch (e) { setError(String(e)); return undefined; }
+    catch (e) { if (String(e) !== 'Error: READ_CANCELLED') setError(String(e)); return undefined; }
     finally { busy.current = false; setWorking(false); }
+  }
+  async function readDocument(path: string, encoding?: TextEncoding): Promise<TextDocument> {
+    try { return await invoke<TextDocument>('read_document', { path, encoding: encoding ?? 'utf8' }); }
+    catch (error) {
+      if (encoding || !String(error).includes('ENCODING_REQUIRED')) throw error;
+      const en = current.current.english;
+      const choice = await ask({ title: en ? 'Choose file encoding' : '選擇檔案編碼', message: `${path}\n${en ? 'This file is not valid UTF-8. Choose its original encoding.' : '這個檔案不是有效的 UTF-8，請選擇原始編碼。'}`,
+        choices: [...encodingChoices.filter(item => item.id !== 'utf8'), { id: 'cancel', label: en ? 'Cancel' : '取消' }] });
+      if (choice.choice === 'cancel') throw new Error('READ_CANCELLED');
+      return invoke<TextDocument>('read_document', { path, encoding: choice.choice });
+    }
+  }
+  async function reopenEncoding(encoding: TextEncoding) {
+    const tab = activeTab;
+    if (!tab || busy.current) return;
+    if (!tab.path || tab.original === null) { send({ type: 'encoding', id: tab.id, encoding }); return; }
+    if (!await confirmTabs([tab])) return;
+    await run(async () => { const doc = await readDocument(tab.path, encoding); send({ type: 'reload', id: tab.id, ...doc }); });
   }
   function checkpoint(snapshot: Session) {
     const write = writes.current.catch(() => {}).then(() => invoke('save_session', { payload: snapshot }));
@@ -140,15 +161,15 @@ function App() {
     send({ type: 'focus', id, pane: target });
     setPane(target);
   }
-  async function openFile(path: string, target: Pane = pane, position?: { line: number; column: number }) {
+  async function openFile(path: string, target: Pane = pane, position?: { line: number; column: number }, encoding?: TextEncoding) {
     if (busy.current) return;
     if (position) jump.current = { path, ...position, pane: target };
     const existing = current.current.tabs.find(t => t.path === path);
     if (existing) { focusTab(existing.id, target); requestAnimationFrame(applyJump); return; }
     if (current.current.tabs.length >= 100) { setError(label('最多可開啟 100 個分頁。', 'A maximum of 100 tabs can be opened.')); return; }
     await run(async () => {
-      const text = await invoke<string>('read_file', { path });
-      send({ type: 'open', tab: { id: newId(), path, text, original: text, language: null }, pane: target });
+      const doc = await readDocument(path, encoding);
+      send({ type: 'open', tab: { id: newId(), path, ...doc, original: doc.text, language: null }, pane: target });
       setPane(target);
     });
   }
@@ -156,6 +177,7 @@ function App() {
     const snapshot = current.current.tabs.find(t => t.id === id);
     if (!snapshot || busy.current) return false;
     let path = snapshot.path;
+    let encoding = snapshot.encoding ?? 'utf8';
     if (saveAs || !path) {
       const result = await ask({ title: label(saveAs ? '另存新檔' : '儲存檔案', saveAs ? 'Save As' : 'Save file'),
         message: current.current.root ? label('輸入相對於專案的路徑；父資料夾須已存在。不覆寫既有檔案。', 'Enter a workspace-relative path. Parent folders must exist. Existing files are not overwritten.') : label('輸入完整檔案路徑，父資料夾將成為工作區。不覆寫既有檔案。', 'Enter an absolute file path. Its parent folder becomes the workspace. Existing files are not overwritten.'),
@@ -163,6 +185,11 @@ function App() {
       if (result.choice !== 'save' || !result.value.trim()) return false;
       path = normalizeUserPath(result.value.trim(), isWindows);
       if (saveAs && path === snapshot.path) return saveTab(id);
+    }
+    if (saveAs) {
+      const choice = await ask({ title: label('另存新檔的編碼', 'Save As encoding'), choices: [...encodingChoices, { id: 'cancel', label: label('取消', 'Cancel') }] });
+      if (choice.choice === 'cancel') return false;
+      encoding = choice.choice as TextEncoding;
     }
     const establishingWorkspace = !current.current.root;
     const location = establishingWorkspace ? absoluteFileLocation(path, isWindows) : null;
@@ -177,9 +204,9 @@ function App() {
         send({ type: 'restore', session: { ...current.current, root: info.root } });
         setRootInput(info.root); setFiles(info.files); setDirectories(info.directories ?? []); recoveryEnabled.current = true;
       }
-      if (saveAs || snapshot.original === null) await invoke('create_file', { path, content: snapshot.text });
-      else await invoke('save_file', { path, original: snapshot.original, content: snapshot.text });
-      send({ type: 'saved', id, text: snapshot.text, path });
+      if (saveAs || snapshot.original === null) await invoke('create_file', { path, content: snapshot.text, encoding });
+      else await invoke('save_file', { path, original: snapshot.original, content: snapshot.text, encoding });
+      send({ type: 'saved', id, text: snapshot.text, path, encoding });
       void bridge.current?.saved(id, snapshot.text);
       setFiles(previous => [...new Set([...previous, path])].sort());
       return true;
@@ -212,8 +239,8 @@ function App() {
       setSearchDirectory(''); setSearchQuery(''); setResults([]); setPathFilter('');
       recoveryEnabled.current = true;
       if (info.selected) {
-        const text = await invoke<string>('read_file', { path: info.selected });
-        send({ type: 'open', tab: { id: newId(), path: info.selected, text, original: text, language: null } });
+        const doc = await readDocument(info.selected);
+        send({ type: 'open', tab: { id: newId(), path: info.selected, ...doc, original: doc.text, language: null } });
       }
     });
   }
@@ -229,7 +256,7 @@ function App() {
       choices: [{ id: 'rename', label: label('重新命名', 'Rename') }, { id: 'cancel', label: label('取消', 'Cancel') }] });
     if (result.choice !== 'rename' || result.value === snapshot.path || !result.value.trim()) return;
     await run(async () => {
-      await invoke('rename_file', { path: snapshot.path, destination: normalizeUserPath(result.value.trim(), isWindows), original: snapshot.original });
+      await invoke('rename_file', { path: snapshot.path, destination: normalizeUserPath(result.value.trim(), isWindows), original: snapshot.original, encoding: snapshot.encoding ?? 'utf8' });
       send({ type: 'renamed', id: snapshot.id, path: normalizeUserPath(result.value.trim(), isWindows) });
       await refresh();
     });
@@ -238,8 +265,8 @@ function App() {
     if (!activeTab?.path || busy.current || !await confirmTabs([activeTab])) return;
     const tab = activeTab;
     await run(async () => {
-      const text = await invoke<string>('read_file', { path: tab.path });
-      send({ type: 'reload', id: tab.id, text });
+      const doc = await readDocument(tab.path, tab.encoding);
+      send({ type: 'reload', id: tab.id, ...doc });
     });
   }
   function showPalette(mode: 'files' | 'commands') { setTabMenu(null); setPaletteQuery(''); setPalette(mode); }
@@ -281,6 +308,7 @@ function App() {
     { id: 'terminal', title: label('切換終端機', 'Toggle terminal'), detail: shortcut('⌘`'), run: () => { setTerminalStarted(true); setTerminalVisible(value => !value); } },
     { id: 'search', title: label('搜尋專案內容', 'Search workspace'), detail: shortcut('⌘⇧F'), run: () => { setGitOpen(false); setSearchDirectory(''); setSearch(true); send({ type: 'setting', key: 'sidebar', value: true }); } },
     { id: 'sidebar', title: label('切換側邊欄', 'Toggle sidebar'), detail: shortcut('⌘B'), run: () => send({ type: 'setting', key: 'sidebar', value: !state.sidebar }) },
+    { id: 'minimap', title: label('切換 minimap 縮圖', 'Toggle minimap'), run: () => send({ type: 'setting', key: 'minimap', value: !state.minimap }) },
     { id: 'preview', title: label('切換 Markdown 預覽', 'Toggle Markdown preview'), run: () => send({ type: 'setting', key: 'preview', value: !state.preview }) },
     { id: 'language', title: label('切換介面語言', 'Switch interface language'), run: () => send({ type: 'setting', key: 'english', value: !state.english }) },
   ];
@@ -308,11 +336,12 @@ function App() {
     const client = new LspBridge({
       state: () => current.current,
       change: (id, text) => send({ type: 'edit', id, text }),
-      insert: (path, text) => {
+      read: path => readDocument(path),
+      insert: (path, text, encoding) => {
         const existing = current.current.tabs.find(t => t.path === path);
         if (existing) return existing;
         if (current.current.tabs.length >= 100) throw new Error('A maximum of 100 tabs can be opened');
-        const tab: Tab = { id: newId(), path, text, original: text, language: null };
+        const tab: Tab = { id: newId(), path, text, original: text, language: null, encoding };
         send({ type: 'insert', tab }); return tab;
       },
       open: (path, position) => openFile(path, focusedPane.current, position),
@@ -348,7 +377,7 @@ function App() {
             const tab = snapshot.tabs[i];
             if (!tab.path) continue;
             let disk: string | null = null;
-            try { disk = await invoke<string>('read_file', { path: tab.path }); } catch { /* Keep recovery text. */ }
+            try { const doc = await readDocument(tab.path, tab.encoding); disk = doc.text; if (!isDirty(tab)) tab.encoding = doc.encoding; } catch { /* Keep recovery text. */ }
             const result = recoverTab(tab, disk);
             snapshot.tabs[i] = result.tab;
             conflicts ||= result.conflict;
@@ -428,12 +457,12 @@ function App() {
     if (!search || !state.root || !searchQuery) { setResults([]); setSearching(false); return; }
     setSearching(true);
     const timer = setTimeout(() => {
-      void invoke<SearchMatch[]>('search_files', { query: searchQuery, caseSensitive, directory: searchDirectory }).then(matches => {
+      void invoke<SearchMatch[]>('search_files', { query: searchQuery, caseSensitive, directory: searchDirectory, encoding: searchEncoding }).then(matches => {
         if (!cancelled) setResults(matches);
       }).catch(e => { if (!cancelled) setError(String(e)); }).finally(() => { if (!cancelled) setSearching(false); });
     }, 250);
     return () => { cancelled = true; clearTimeout(timer); void invoke('cancel_search').catch(() => {}); };
-  }, [search, searchQuery, caseSensitive, searchDirectory, state.root]);
+  }, [search, searchQuery, caseSensitive, searchDirectory, searchEncoding, state.root]);
 
   function applyJump() {
     const position = jump.current;
@@ -461,7 +490,7 @@ function App() {
       {target === 'secondary' && <select aria-label={label('右側檔案', 'Right editor file')} value={state.secondary} onChange={e => focusTab(e.target.value, 'secondary')}>
         {state.tabs.map(t => <option key={t.id} value={t.id}>{t.path || label('未命名', 'Untitled')}{isDirty(t) ? ' ●' : ''}</option>)}
       </select>}
-      {tab ? <CodePane key={`${state.root}:${target}`} tab={tab} scope={state.root} readOnly={!ready || working || !!dialog || lspSettingsOpen || closing.current}
+      {tab ? <CodePane key={`${state.root}:${target}`} tab={tab} scope={state.root} minimap={state.minimap} readOnly={!ready || working || !!dialog || lspSettingsOpen || closing.current}
         change={(id, text) => send({ type: 'edit', id, text })}
         focused={() => setPane(target)} mounted={editor => { editorRefs.current[target] = editor; if (editor) requestAnimationFrame(applyJump); }} />
         : <div className="welcome"><h1>Free Code Editor</h1><p>{label('開啟專案，開始編輯。', 'Open a workspace to begin.')}</p><p>{shortcut('⌘O · ⌘P · ⌘⇧P')}</p></div>}
@@ -494,9 +523,10 @@ function App() {
           </div>}
           <input aria-label={label('搜尋專案內容', 'Search workspace')} autoFocus placeholder={label('搜尋專案內容…', 'Search workspace…')}
             value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          <select aria-label={label('搜尋編碼', 'Search encoding')} value={searchEncoding} onChange={event => setSearchEncoding(event.target.value as TextEncoding)}>{encodingChoices.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
           <label className="search-option"><input type="checkbox" checked={caseSensitive} onChange={e => setCaseSensitive(e.target.checked)} />{label('區分大小寫', 'Case sensitive')}</label>
           <small>{searching ? label('搜尋中…', 'Searching…') : `${results.length}${results.length === 500 ? '+' : ''} ${label('筆結果', 'results')}`}</small>
-          {results.map(result => <button className="search-result" key={`${result.path}:${result.line}`} onClick={() => { void openFile(result.path, pane, result); }}>
+          {results.map(result => <button className="search-result" key={`${result.path}:${result.line}`} onClick={() => { void openFile(result.path, pane, result, searchEncoding); }}>
             <strong>{result.path}:{result.line}</strong><span>{result.preview}</span></button>)}
         </div> : <>
           <section className="explorer-open-files" aria-label={label('開啟的檔案', 'Open files')}>
@@ -528,6 +558,7 @@ function App() {
             <button className="close-tab" aria-label={label('關閉分頁', 'Close tab')} onClick={() => { void closeTab(tab.id); }}>×</button>
           </div>)}
           <button title={label('左右分割', 'Split editor')} onClick={commands.find(c => c.id === 'split')!.run}>◫</button>
+          <button aria-pressed={state.minimap} title={label('切換 minimap 縮圖', 'Toggle minimap')} onClick={commands.find(c => c.id === 'minimap')!.run}>{label('縮圖', 'Minimap')}</button>
           <button title="Markdown" onClick={commands.find(c => c.id === 'preview')!.run}>M↓</button>
         </nav>
         <div className="panes">
@@ -542,7 +573,7 @@ function App() {
     <footer><span role="status">{error || (!ready ? label('復原工作階段…', 'Restoring session…') : working ? label('處理中…', 'Working…') : activeTab?.path || label('就緒', 'Ready'))}</span>
       {activeTab && <select aria-label={label('檔案語言', 'File language')} value={activeTab.language ?? 'auto'} onChange={e => send({ type: 'language', id: activeTab.id, language: e.target.value === 'auto' ? null : e.target.value })}>
         <option value="auto">{label('自動', 'Auto')}: {languageForPath(activeTab.path)}</option>{languageIds.map(id => <option key={id}>{id}</option>)}
-      </select>}<span className="lsp-status" title={serviceStatus}>LSP: {serviceStatus}</span><span>UTF-8</span></footer>
+      </select>}<span className="lsp-status" title={serviceStatus}>LSP: {serviceStatus}</span>{activeTab ? <select aria-label={label('檔案編碼（重新開啟）', 'File encoding (reopen)')} title={label('依所選編碼重新開啟；另存新檔可轉換編碼', 'Reopen with selected encoding; Save As converts encoding')} disabled={working} value={activeTab.encoding ?? 'utf8'} onChange={event => { void reopenEncoding(event.target.value as TextEncoding); }}>{encodingChoices.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select> : <span>UTF-8</span>}</footer>
     </div>
     {tabMenu && <div ref={tabMenuRef} role="menu" className="folder-context-menu tab-context-menu" style={{ left: tabMenu.x, top: tabMenu.y }}>
       <button role="menuitem" onClick={() => { setCompareSource(tabMenu.id); setPaletteQuery(''); setPalette('compare'); setTabMenu(null); }}>{label('選擇檔案比較…', 'Compare with…')}</button>

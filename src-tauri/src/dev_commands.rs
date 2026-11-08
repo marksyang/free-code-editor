@@ -52,13 +52,15 @@ pub async fn git_diff(
     path: String,
     staged: bool,
     original: Option<String>,
+    encoding: Option<String>,
 ) -> Result<git_service::Diff, String> {
     let root = root(&state)?;
+    let encoding = crate::workspace::text_encoding::Encoding::parse(encoding.as_deref())?;
     if root.to_string_lossy() != workspace_root {
         return Err("Workspace changed; retry the action".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        git_service::diff(&root, &path, staged, original.as_deref())
+        git_service::diff_encoded(&root, &path, staged, original.as_deref(), encoding)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -101,13 +103,15 @@ pub async fn git_history_diff(
     revision: String,
     path: String,
     original: Option<String>,
+    encoding: Option<String>,
 ) -> Result<git_service::Diff, String> {
     let root = root(&state)?;
+    let encoding = crate::workspace::text_encoding::Encoding::parse(encoding.as_deref())?;
     if root.to_string_lossy() != workspace_root {
         return Err("Workspace changed; retry the action".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        git_service::history_diff(&root, &revision, &path, original.as_deref())
+        git_service::history_diff_encoded(&root, &revision, &path, original.as_deref(), encoding)
     })
     .await
     .map_err(|e| e.to_string())?

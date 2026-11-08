@@ -6,13 +6,13 @@ import { continueMarkdownList } from './markdown-edit';
 import type { Tab } from './editor-state';
 
 type Props = {
-  tab: Tab; scope: string; readOnly: boolean;
+  tab: Tab; scope: string; readOnly: boolean; minimap?: boolean;
   change: (id: string, text: string) => void;
   focused: () => void;
   mounted: (editor: monaco.editor.IStandaloneCodeEditor | null) => void;
 };
 
-export function CodePane({ tab, scope, readOnly, change, focused, mounted }: Props) {
+export function CodePane({ tab, scope, readOnly, change, focused, mounted, minimap = true }: Props) {
   const latest = useRef({ tab, focused, mounted });
   latest.current = { tab, focused, mounted };
   useEffect(() => () => latest.current.mounted(null), []);
@@ -20,7 +20,7 @@ export function CodePane({ tab, scope, readOnly, change, focused, mounted }: Pro
   return <Editor theme="vs-dark" path={editorModelPath(scope, tab.id, tab.path, tab.language)}
     language={language} value={tab.text} keepCurrentModel saveViewState
     options={{ automaticLayout: true, fontSize: 14, readOnly, insertSpaces: language !== 'makefile',
-      detectIndentation: language !== 'makefile', tabSize: 4, minimap: { enabled: true },
+      detectIndentation: language !== 'makefile', tabSize: 4, minimap: { enabled: minimap },
       scrollBeyondLastLine: false, renderWhitespace: language === 'makefile' ? 'all' : 'selection' }}
     onChange={value => change(tab.id, value ?? '')}
     onMount={editor => {

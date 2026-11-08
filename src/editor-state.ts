@@ -1,9 +1,11 @@
+export type TextEncoding = 'utf8' | 'big5' | 'gbk' | 'gb18030';
 export type Tab = {
   id: string;
   path: string;
   text: string;
   original: string | null;
   language: string | null;
+  encoding?: TextEncoding;
 };
 export type Session = {
   version: 1;
@@ -13,6 +15,7 @@ export type Session = {
   secondary: string;
   split: boolean;
   preview: boolean;
+  minimap: boolean;
   english: boolean;
   sidebar: boolean;
   width: number;
@@ -20,7 +23,7 @@ export type Session = {
 };
 export const initialSession: Session = {
   version: 1, root: '', tabs: [], active: '', secondary: '', split: false,
-  preview: true, english: false, sidebar: true, width: 1280, height: 850,
+  preview: true, minimap: true, english: false, sidebar: true, width: 1280, height: 850,
 };
 export const isDirty = (tab: Tab) => tab.original === null || tab.text !== tab.original;
 export type Action =
@@ -30,12 +33,13 @@ export type Action =
   | { type: 'insert'; tab: Tab }
   | { type: 'focus'; id: string; pane: 'primary' | 'secondary' }
   | { type: 'edit'; id: string; text: string }
-  | { type: 'saved'; id: string; text: string; path: string }
+  | { type: 'saved'; id: string; text: string; path: string; encoding?: TextEncoding }
   | { type: 'renamed'; id: string; path: string }
-  | { type: 'reload'; id: string; text: string }
+  | { type: 'reload'; id: string; text: string; encoding?: TextEncoding }
+  | { type: 'encoding'; id: string; encoding: TextEncoding }
   | { type: 'language'; id: string; language: string | null }
   | { type: 'close'; id: string }
-  | { type: 'setting'; key: 'split' | 'preview' | 'english' | 'sidebar'; value: boolean }
+  | { type: 'setting'; key: 'split' | 'preview' | 'minimap' | 'english' | 'sidebar'; value: boolean }
   | { type: 'size'; width: number; height: number };
 
 export function editorReducer(state: Session, action: Action): Session {
@@ -52,10 +56,11 @@ export function editorReducer(state: Session, action: Action): Session {
     case 'focus': return { ...state, [action.pane === 'secondary' ? 'secondary' : 'active']: action.id };
     case 'edit': if (state.tabs.find(t => t.id === action.id)?.text === action.text) return state; return { ...state, tabs: state.tabs.map(t => t.id === action.id ? { ...t, text: action.text } : t) };
     case 'saved': return { ...state, tabs: state.tabs.map(t => t.id === action.id
-      ? { ...t, path: action.path, original: action.text } : t) };
+      ? { ...t, path: action.path, original: action.text, encoding: action.encoding ?? t.encoding } : t) };
     case 'renamed': return { ...state, tabs: state.tabs.map(t => t.id === action.id ? { ...t, path: action.path } : t) };
     case 'reload': return { ...state, tabs: state.tabs.map(t => t.id === action.id
-      ? { ...t, text: action.text, original: action.text } : t) };
+      ? { ...t, text: action.text, original: action.text, encoding: action.encoding ?? t.encoding } : t) };
+    case 'encoding': return { ...state, tabs: state.tabs.map(t => t.id === action.id ? { ...t, encoding: action.encoding } : t) };
     case 'language': return { ...state, tabs: state.tabs.map(t => t.id === action.id ? { ...t, language: action.language } : t) };
     case 'close': {
       const tabs = state.tabs.filter(t => t.id !== action.id);
@@ -78,13 +83,13 @@ export function normalizeSession(value: unknown): Session | null {
   const tabs = s.tabs.filter((t): t is Tab => {
     if (!t || typeof t.id !== 'string' || !t.id || typeof t.path !== 'string' ||
       typeof t.text !== 'string' || !(t.original === null || typeof t.original === 'string') ||
-      !(t.language === null || typeof t.language === 'string') || ids.has(t.id) || (t.path && paths.has(t.path))) return false;
+      !(t.language === null || typeof t.language === 'string') || (t.encoding !== undefined && !['utf8', 'big5', 'gbk', 'gb18030'].includes(t.encoding)) || ids.has(t.id) || (t.path && paths.has(t.path))) return false;
     ids.add(t.id); if (t.path) paths.add(t.path); return true;
   }).slice(0, 100);
   return { ...initialSession, root: s.root, tabs,
     active: tabs.some(t => t.id === s.active) ? s.active! : tabs[0]?.id ?? '',
     secondary: tabs.some(t => t.id === s.secondary) ? s.secondary! : tabs[0]?.id ?? '',
-    split: s.split === true, preview: s.preview !== false, english: s.english === true, sidebar: s.sidebar !== false,
+    split: s.split === true, preview: s.preview !== false, minimap: s.minimap !== false, english: s.english === true, sidebar: s.sidebar !== false,
     width: typeof s.width === 'number' && Number.isFinite(s.width) ? Math.min(3840, Math.max(640, s.width)) : 1280,
     height: typeof s.height === 'number' && Number.isFinite(s.height) ? Math.min(2160, Math.max(480, s.height)) : 850,
   };

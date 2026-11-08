@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import type { TextEncoding } from './text-encoding';
 import type { Tab } from './editor-state';
 
 type Commit = { hash: string; parents: string[]; author: string; date: string; subject: string };
 type History = { commits: Commit[]; head: string | null; has_more: boolean };
 type HistoryFile = { path: string; original: string | null; status: string };
 type Details = { parent: string | null; files: HistoryFile[] };
-export function GitHistory({ root, english, refreshToken, compare }: {
-  root: string; english: boolean; refreshToken: number; compare: (left: Tab, right: Tab) => void;
+export function GitHistory({ root, english, refreshToken, compare, encoding }: {
+  root: string; english: boolean; refreshToken: number; encoding: TextEncoding; compare: (left: Tab, right: Tab) => void;
 }) {
   const [history, setHistory] = useState<History>({ commits: [], head: null, has_more: false });
   const [selected, setSelected] = useState<Commit | null>(null);
@@ -55,7 +56,7 @@ export function GitHistory({ root, english, refreshToken, compare }: {
     const commit = selected; const parent = details.parent; const request = detailVersion.current;
     setComparing(true); setError('');
     try {
-      const result = await invoke<{ before: string; after: string }>('git_history_diff', { workspaceRoot: root, revision: commit.hash, path: file.path, original: file.original });
+      const result = await invoke<{ before: string; after: string }>('git_history_diff', { workspaceRoot: root, revision: commit.hash, path: file.path, original: file.original, encoding });
       if (!alive.current || request !== detailVersion.current) return;
       const tab = (id: string, path: string, text: string): Tab => ({ id, path, text, original: text, language: null });
       compare(tab('history-before', `${parent?.slice(0, 8) ?? label('空版本', 'Empty')} · ${file.original ?? file.path}`, result.before),

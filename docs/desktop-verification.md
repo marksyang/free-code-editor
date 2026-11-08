@@ -117,3 +117,9 @@ npm run test:desktop:fixture
 後續 CI 為 41 項中 40 項通過，ConPTY 顯示 `command_sent=false, exited=true`，輸出只有清屏、視窗標題及輸入模式切換，PowerShell 未進入提示字元。前一版等待與 VT 解析未解決實際程序提前退出。
 
 已補上 `STARTF_USESTDHANDLES` 與空標準 handles，避免重複使用 CI 父程序被重新導向的標準串流；依據為 [Microsoft Terminal 的問題說明](https://github.com/microsoft/terminal/discussions/15814) 與 [node-pty 的啟動設定](https://github.com/microsoft/node-pty/blob/main/src/win/conpty.cc)。新增以空 stdin、管線 stdout／stderr 啟動真正 smoke test 的 Windows 回歸測試，並在提前退出時回報 exit code。保留原本的啟動等待、VT 處理、期限與十萬檔案測試。修正後 Windows CI 尚待重跑，不將本機 macOS 通過視為 Windows 已通過。
+
+### 中文編碼、minimap 與文字檔容量
+
+macOS Rust 46 項、Node 60 項通過（另 1 項 Make 測試略過）。服務測試涵蓋 Big5、GBK、GB18030 無損讀寫、CRLF、無法表示字元拒絕覆寫、搜尋、Git 差異與 100 MiB 邊界；前端狀態測試涵蓋編碼恢復與 LSP 跨檔編輯保留編碼。
+
+待真實桌面驗收：開啟 Big5／GBK 檔並選編碼、修改儲存後以外部工具核對 bytes、另存轉碼、搜尋及 Git 差異選編碼、切換 minimap 後重啟、100 MiB 檔的開啟與編輯效能，以及超出 32 MiB 工作階段備份的錯誤提示。Windows／Linux 原生轉碼與 GUI 仍待 CI／目標平台驗證。

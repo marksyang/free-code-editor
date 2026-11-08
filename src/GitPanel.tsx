@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { GitHistory } from './GitHistory';
+import { encodingChoices } from './text-encoding';
+import type { TextEncoding } from './text-encoding';
 import type { Tab } from './editor-state';
 type Entry = { path: string; original: string | null; index: string; worktree: string };
 type Status = { branch: string; entries: Entry[] };
 export function GitPanel({ root, english, compare, open }: {
   root: string; english: boolean; compare: (left: Tab, right: Tab) => void; open: (path: string) => void;
 }) {
+  const [encoding, setEncoding] = useState<TextEncoding>('utf8');
   const [view, setView] = useState<'changes' | 'history'>('changes');
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const [status, setStatus] = useState<Status | null>(null);
@@ -36,7 +39,7 @@ export function GitPanel({ root, english, compare, open }: {
   }
   async function diff(entry: Entry, staged: boolean) {
     await action(async () => {
-      const result = await invoke<{ before: string; after: string }>('git_diff', { workspaceRoot: root, path: entry.path, original: staged ? entry.original : null, staged });
+      const result = await invoke<{ before: string; after: string }>('git_diff', { workspaceRoot: root, path: entry.path, original: staged ? entry.original : null, staged, encoding });
       if (!alive.current) return;
       const tab = (id: string, text: string): Tab => ({ id, path: entry.path, text, original: text, language: null });
       const before = tab('git-before', result.before); const after = tab('git-after', result.after);
@@ -57,10 +60,11 @@ export function GitPanel({ root, english, compare, open }: {
   }
   return <div className="git-panel">
     <div className="dev-toolbar"><strong>Git {status?.branch}</strong><button disabled={busy} onClick={() => { void refresh(); setHistoryRefresh(value => value + 1); }}>{label('重新整理', 'Refresh')}</button></div>
+    <select aria-label={label('Git 差異編碼', 'Git diff encoding')} value={encoding} disabled={busy} onChange={event => setEncoding(event.target.value as TextEncoding)}>{encodingChoices.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select>
     {error && <p role="alert" className="dev-error">{error}</p>}
     <div className="sidebar-tabs git-view-tabs"><button className={view === 'changes' ? 'active' : ''} onClick={() => setView('changes')}>{label('變更', 'Changes')}</button>
       <button className={view === 'history' ? 'active' : ''} onClick={() => setView('history')}>{label('歷史', 'History')}</button></div>
-    {view === 'history' ? <GitHistory key={root} root={root} english={english} refreshToken={historyRefresh} compare={compare} /> : status && <><textarea aria-label={label('提交訊息', 'Commit message')} placeholder={label('提交訊息', 'Commit message')} value={message} onChange={event => setMessage(event.target.value)} />
+    {view === 'history' ? <GitHistory key={root} root={root} english={english} refreshToken={historyRefresh} encoding={encoding} compare={compare} /> : status && <><textarea aria-label={label('提交訊息', 'Commit message')} placeholder={label('提交訊息', 'Commit message')} value={message} onChange={event => setMessage(event.target.value)} />
       <button disabled={busy || !message.trim() || !status.entries.some(entry => ![' ', '?'].includes(entry.index))} onClick={() => { void action(async () => { await invoke('git_commit', { workspaceRoot: root, message }); if (alive.current) setMessage(''); }); }}>{label('提交已暫存變更', 'Commit staged changes')}</button>
       <small>{label('Git 使用磁碟版本；請先儲存編輯。點選檔名檢視差異。', 'Git uses disk contents; save edits first. Click a file to view its diff.')}</small>
       {group(true)}{group(false)}

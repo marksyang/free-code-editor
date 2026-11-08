@@ -3,11 +3,12 @@ import { monaco } from './monaco';
 import { languageForPath, lspLanguages, editorModelPath } from './languages';
 import { markdown, object, range, textEdit, validateEdits, workspaceEdits, serverKey } from './lsp-protocol';
 import type { LspSettings, Range } from './lsp-protocol';
-import type { Session, Tab } from './editor-state';
+import type { Session, Tab, TextEncoding } from './editor-state';
 
 type Context = {
   state: () => Session;
-  insert: (path: string, text: string) => Tab;
+  insert: (path: string, text: string, encoding?: TextEncoding) => Tab;
+  read?: (path: string) => Promise<{ text: string; encoding?: TextEncoding }>;
   change: (id: string, text: string) => void;
   open: (path: string, position: { line: number; column: number }) => Promise<void>;
 };
@@ -227,7 +228,7 @@ export class LspBridge {
         const path = await invoke<string>('lsp_document_path', { expectedRoot: root, uri });
         if (root !== this.root) return [];
         const existing = this.context.state().tabs.find(t => t.path === path);
-        const text = existing?.text ?? await invoke<string>('read_file', { path });
+        const text = existing?.text ?? (this.context.read ? (await this.context.read(path)).text : await invoke<string>('read_file', { path }));
         if (root !== this.root) return [];
         const resource = monaco.Uri.parse(uri);
         let model = monaco.editor.getModel(resource);
@@ -309,14 +310,15 @@ export class LspBridge {
           if (!response) return;
           try {
             const groups = workspaceEdits(response.value), peer = response.document.peer;
-            const prepared: { path: string; text: string; edits: ReturnType<typeof workspaceEdits>[number]['edits'] }[] = [];
+            const prepared: { path: string; text: string; encoding?: TextEncoding; edits: ReturnType<typeof workspaceEdits>[number]['edits'] }[] = [];
             for (const group of groups) {
               const path = await invoke<string>('lsp_document_path', { expectedRoot: peer.root, uri: group.uri });
               const tab = this.context.state().tabs.find(t => t.path === path);
-              const text = tab?.text ?? await invoke<string>('read_file', { path });
+              const document = tab ? { text: tab.text, encoding: tab.encoding } : this.context.read ? await this.context.read(path) : { text: await invoke<string>('read_file', { path }), encoding: undefined };
+              const text = document.text;
               const tracked = [...this.documents.values()].find(d => d.uri === group.uri && d.peer === peer);
               if (group.version !== null && (!tracked || tracked.version !== group.version || tracked.text !== text)) throw new Error('Rename document version changed');
-              validateEdits(text, group.edits); prepared.push({ path, text, edits: group.edits });
+              validateEdits(text, group.edits); prepared.push({ path, text, encoding: document.encoding, edits: group.edits });
             }
             if (peer.generation !== this.generation || model.isDisposed() || response.modelVersion !== model.getVersionId() || token.isCancellationRequested) return;
             for (const item of prepared) {
@@ -327,7 +329,7 @@ export class LspBridge {
             if (state.tabs.length + prepared.filter(p => !state.tabs.some(t => t.path === p.path)).length > 100) throw new Error('Rename would exceed the 100-tab limit');
             const edits: monaco.languages.IWorkspaceTextEdit[] = [];
             for (const item of prepared) {
-              const tab = this.context.insert(item.path, item.text), uri = modelUri(peer.root, tab);
+              const tab = this.context.insert(item.path, item.text, item.encoding), uri = modelUri(peer.root, tab);
               let target = monaco.editor.getModel(uri);
               if (!target) target = monaco.editor.createModel(item.text, tab.language ?? languageForPath(tab.path), uri);
               const versionId = target.getVersionId();

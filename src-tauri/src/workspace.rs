@@ -1,3 +1,7 @@
+#[path = "text_encoding.rs"]
+pub mod text_encoding;
+use text_encoding::Encoding;
+
 use std::{
     fs,
     io::{Read, Write},
@@ -6,7 +10,7 @@ use std::{
 };
 
 static NEXT_WRITE: AtomicU64 = AtomicU64::new(0);
-pub const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
+pub const MAX_FILE_BYTES: u64 = 100 * 1024 * 1024;
 
 pub fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
     let parent = path.parent().ok_or("Missing parent directory")?;
@@ -70,25 +74,45 @@ fn new_path(root: &Path, path: &str) -> Result<PathBuf, String> {
     Ok(parent.join(relative.file_name().ok_or("Missing filename")?))
 }
 
+#[cfg(test)]
 pub fn create(root: &Path, path: &str, content: &str) -> Result<(), String> {
-    if content.len() as u64 > MAX_FILE_BYTES {
-        return Err("File exceeds 8 MiB".into());
+    create_encoded(root, path, content, Encoding::Utf8)
+}
+pub fn create_encoded(
+    root: &Path,
+    path: &str,
+    content: &str,
+    encoding: Encoding,
+) -> Result<(), String> {
+    if encoding == Encoding::Utf8 && content.len() as u64 > MAX_FILE_BYTES {
+        return Err("File exceeds 100 MiB".into());
+    }
+    let bytes = text_encoding::encode(content, encoding)?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err("Encoded file exceeds 100 MiB".into());
     }
     let target = new_path(root, path)?;
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
     let mut file = options.open(&target).map_err(|e| e.to_string())?;
-    if let Err(e) = file
-        .write_all(content.as_bytes())
-        .and_then(|_| file.sync_all())
-    {
+    if let Err(e) = file.write_all(&bytes).and_then(|_| file.sync_all()) {
         let _ = fs::remove_file(target);
         return Err(e.to_string());
     }
     Ok(())
 }
 
+#[cfg(test)]
 pub fn rename(root: &Path, path: &str, destination: &str, original: &str) -> Result<(), String> {
+    rename_encoded(root, path, destination, original, Encoding::Utf8)
+}
+pub fn rename_encoded(
+    root: &Path,
+    path: &str,
+    destination: &str,
+    original: &str,
+    encoding: Encoding,
+) -> Result<(), String> {
     if fs::symlink_metadata(root.join(path))
         .map_err(|e| e.to_string())?
         .file_type()
@@ -101,7 +125,7 @@ pub fn rename(root: &Path, path: &str, destination: &str, original: &str) -> Res
     if source == target {
         return Ok(());
     }
-    if read(root, path)? != original {
+    if read_encoded(root, path, encoding)? != original {
         return Err("File changed externally; reopen before renaming".into());
     }
     // Creating a hard link fails if the destination already exists, so no file is overwritten.
@@ -132,9 +156,13 @@ pub fn resolve(root: &Path, path: &str) -> Result<PathBuf, String> {
 }
 
 pub fn read(root: &Path, path: &str) -> Result<String, String> {
+    read_encoded(root, path, Encoding::Utf8)
+}
+pub fn read_encoded(root: &Path, path: &str, encoding: Encoding) -> Result<String, String> {
+    let display_path = path;
     let path = resolve(root, path)?;
     if fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_FILE_BYTES {
-        return Err("File exceeds 8 MiB".into());
+        return Err("File exceeds 100 MiB".into());
     }
     let mut bytes = Vec::new();
     fs::File::open(path)
@@ -143,24 +171,45 @@ pub fn read(root: &Path, path: &str) -> Result<String, String> {
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
-        return Err("File exceeds 8 MiB".into());
+        return Err("File exceeds 100 MiB".into());
     }
-    let text = String::from_utf8(bytes).map_err(|e| e.to_string())?;
-    if text.contains('\0') {
-        return Err("Binary files are not supported".into());
+    if bytes.starts_with(&[0xff, 0xfe, 0, 0]) || bytes.starts_with(&[0, 0, 0xfe, 0xff]) {
+        return Err(format!("Cannot open {display_path}: UTF-32 is not supported. Convert a copy to UTF-8 before opening."));
     }
-    Ok(text)
+    if bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[0xfe, 0xff]) {
+        return Err(format!("Cannot open {display_path}: UTF-16 is not supported. Convert a copy to UTF-8 before opening."));
+    }
+    if bytes.contains(&0) {
+        return Err(format!(
+            "Cannot open {display_path}: binary files are not supported"
+        ));
+    }
+    text_encoding::decode(&bytes, encoding)
+        .map_err(|error| format!("{error} [file: {display_path}]"))
 }
 
+#[cfg(test)]
 pub fn save(root: &Path, path: &str, original: &str, content: &str) -> Result<(), String> {
-    let path = resolve(root, path)?;
-    if fs::read_to_string(&path).map_err(|e| e.to_string())? != original {
+    save_encoded(root, path, original, content, Encoding::Utf8)
+}
+pub fn save_encoded(
+    root: &Path,
+    path: &str,
+    original: &str,
+    content: &str,
+    encoding: Encoding,
+) -> Result<(), String> {
+    if read_encoded(root, path, encoding)? != original {
         return Err("File changed externally; reopen before saving".into());
     }
-    if content.len() as u64 > MAX_FILE_BYTES {
-        return Err("File exceeds 8 MiB".into());
+    if encoding == Encoding::Utf8 && content.len() as u64 > MAX_FILE_BYTES {
+        return Err("File exceeds 100 MiB".into());
     }
-    atomic_write(&path, content.as_bytes())
+    let bytes = text_encoding::encode(content, encoding)?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return Err("Encoded file exceeds 100 MiB".into());
+    }
+    atomic_write(&resolve(root, path)?, &bytes)
 }
 
 pub struct Listing {
@@ -336,11 +385,29 @@ pub fn search_cancellable(
     search_in_directory(root, "", query, case_sensitive, cancelled)
 }
 
+#[cfg(test)]
 pub fn search_in_directory(
     root: &Path,
     directory: &str,
     query: &str,
     case_sensitive: bool,
+    cancelled: impl Fn() -> bool,
+) -> Result<Vec<Match>, String> {
+    search_encoded(
+        root,
+        directory,
+        query,
+        case_sensitive,
+        Encoding::Utf8,
+        cancelled,
+    )
+}
+pub fn search_encoded(
+    root: &Path,
+    directory: &str,
+    query: &str,
+    case_sensitive: bool,
+    encoding: Encoding,
     cancelled: impl Fn() -> bool,
 ) -> Result<Vec<Match>, String> {
     let scope = resolve(root, directory)?;
@@ -367,7 +434,7 @@ pub fn search_in_directory(
         if cancelled() {
             return Err("Search cancelled".into());
         }
-        let Ok(text) = read(root, &path) else {
+        let Ok(text) = read_encoded(root, &path, encoding) else {
             return Ok(true);
         };
         for (line, value) in text.lines().enumerate() {
@@ -418,6 +485,82 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+    #[test]
+    fn legacy_encodings_preserve_bytes_and_reject_unrepresentable_saves() {
+        let f = Fixture::new();
+        for encoding in [Encoding::Big5, Encoding::Gbk, Encoding::Gb18030] {
+            let path = format!("{}.txt", encoding.label());
+            let original = "中文 下午\t\r\n";
+            create_encoded(&f.0, &path, original, encoding).unwrap();
+            let bytes = fs::read(f.0.join(&path)).unwrap();
+            assert_eq!(read_encoded(&f.0, &path, encoding).unwrap(), original);
+            save_encoded(&f.0, &path, original, original, encoding).unwrap();
+            assert_eq!(fs::read(f.0.join(&path)).unwrap(), bytes);
+            if encoding != Encoding::Gb18030 {
+                assert!(save_encoded(&f.0, &path, original, "😀", encoding).is_err());
+                assert_eq!(fs::read(f.0.join(&path)).unwrap(), bytes);
+                assert!(create_encoded(&f.0, "bad.txt", "😀", encoding).is_err());
+                assert!(!f.0.join("bad.txt").exists());
+            }
+            save_encoded(&f.0, &path, original, "中文 上午\t\r\n", encoding).unwrap();
+            assert!(save_encoded(&f.0, &path, original, "overwrite", encoding).is_err());
+            let renamed = format!("renamed-{}.txt", encoding.label());
+            rename_encoded(&f.0, &path, &renamed, "中文 上午\t\r\n", encoding).unwrap();
+            assert_eq!(
+                read_encoded(&f.0, &renamed, encoding).unwrap(),
+                "中文 上午\t\r\n"
+            );
+            assert_eq!(
+                search_encoded(&f.0, "", "上午", true, encoding, || false)
+                    .unwrap()
+                    .iter()
+                    .filter(|m| m.path == renamed)
+                    .count(),
+                1
+            );
+        }
+    }
+    #[test]
+    fn accepts_100_mib_files_and_rejects_larger_files_before_reading() {
+        let f = Fixture::new();
+        let path = f.0.join("large.txt");
+        let mut file = fs::File::create(&path).unwrap();
+        let chunk = vec![b'a'; 1024 * 1024];
+        for _ in 0..100 {
+            file.write_all(&chunk).unwrap();
+        }
+        drop(file);
+        assert_eq!(
+            read(&f.0, "large.txt").unwrap().len() as u64,
+            MAX_FILE_BYTES
+        );
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_len(MAX_FILE_BYTES + 1)
+            .unwrap();
+        assert!(read(&f.0, "large.txt").unwrap_err().contains("100 MiB"));
+    }
+    #[test]
+    fn invalid_encodings_report_file_and_offset_without_changing_bytes() {
+        let f = Fixture::new();
+        let mut bytes = vec![b'a'; 184_057];
+        bytes.push(0xff);
+        fs::write(f.0.join("legacy.c"), &bytes).unwrap();
+        let error = read(&f.0, "legacy.c").unwrap_err();
+        assert!(error.contains("legacy.c"));
+        assert!(error.contains("byte 184057"));
+        assert!(error.contains("UTF-8"));
+        assert!(save(&f.0, "legacy.c", "old", "new").is_err());
+        assert_eq!(fs::read(f.0.join("legacy.c")).unwrap(), bytes);
+        fs::write(f.0.join("utf16.txt"), [0xff, 0xfe, b'a', 0]).unwrap();
+        assert!(read(&f.0, "utf16.txt").unwrap_err().contains("UTF-16"));
+        fs::write(f.0.join("utf32.txt"), [0xff, 0xfe, 0, 0, b'a', 0, 0, 0]).unwrap();
+        assert!(read(&f.0, "utf32.txt").unwrap_err().contains("UTF-32"));
+        fs::write(f.0.join("binary.bin"), [0, 0xff]).unwrap();
+        assert!(read(&f.0, "binary.bin").unwrap_err().contains("binary"));
     }
     #[test]
     fn frontend_relative_paths_use_forward_slashes_and_keep_unicode() {

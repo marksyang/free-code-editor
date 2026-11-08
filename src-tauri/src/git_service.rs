@@ -1,3 +1,4 @@
+use crate::workspace::text_encoding::{self, Encoding};
 use serde::Serialize;
 use std::{
     path::{Component, Path},
@@ -135,18 +136,24 @@ pub fn commit(root: &Path, message: &str) -> Result<(), String> {
     run(root, &["commit", "-m", message])?;
     Ok(())
 }
-fn version(root: &Path, spec: &str) -> Result<String, String> {
+fn version(root: &Path, spec: &str, encoding: Encoding) -> Result<String, String> {
     // Missing HEAD/index entries represent newly added or deleted files.
     if run(root, &["cat-file", "-e", spec]).is_err() {
         return Ok(String::new());
     }
-    let value = text(run(root, &["show", spec])?)?;
-    if value.contains('\0') {
-        return Err("Binary comparison is not supported".into());
-    }
-    Ok(value)
+    text_encoding::decode(&run(root, &["show", spec])?, encoding)
 }
+#[cfg(test)]
 pub fn diff(root: &Path, path: &str, staged: bool, original: Option<&str>) -> Result<Diff, String> {
+    diff_encoded(root, path, staged, original, Encoding::Utf8)
+}
+pub fn diff_encoded(
+    root: &Path,
+    path: &str,
+    staged: bool,
+    original: Option<&str>,
+    encoding: Encoding,
+) -> Result<Diff, String> {
     repository(root)?;
     validate(path)?;
     let old = original.unwrap_or(path);
@@ -154,13 +161,14 @@ pub fn diff(root: &Path, path: &str, staged: bool, original: Option<&str>) -> Re
     let before = version(
         root,
         &format!("{}:{}", if staged { "HEAD" } else { "" }, old),
+        encoding,
     )?;
     let after = if staged {
-        version(root, &format!(":{path}"))?
+        version(root, &format!(":{path}"), encoding)?
     } else if !root.join(path).try_exists().map_err(|e| e.to_string())? {
         String::new()
     } else {
-        crate::workspace::read(root, path)?
+        crate::workspace::read_encoded(root, path, encoding)?
     };
     Ok(Diff { before, after })
 }
@@ -319,11 +327,21 @@ pub fn commit_files(root: &Path, revision: &str) -> Result<CommitFiles, String> 
     let files = parse_history_files(&run(root, &args)?)?;
     Ok(CommitFiles { parent, files })
 }
+#[cfg(test)]
 pub fn history_diff(
     root: &Path,
     revision: &str,
     path: &str,
     original: Option<&str>,
+) -> Result<Diff, String> {
+    history_diff_encoded(root, revision, path, original, Encoding::Utf8)
+}
+pub fn history_diff_encoded(
+    root: &Path,
+    revision: &str,
+    path: &str,
+    original: Option<&str>,
+    encoding: Encoding,
 ) -> Result<Diff, String> {
     repository(root)?;
     validate(path)?;
@@ -331,11 +349,11 @@ pub fn history_diff(
     validate(old)?;
     let parent = commit_parent(root, revision)?;
     let before = if let Some(parent) = parent {
-        version(root, &format!("{parent}:{old}"))?
+        version(root, &format!("{parent}:{old}"), encoding)?
     } else {
         String::new()
     };
-    let after = version(root, &format!("{revision}:{path}"))?;
+    let after = version(root, &format!("{revision}:{path}"), encoding)?;
     Ok(Diff { before, after })
 }
 #[cfg(test)]
@@ -499,6 +517,19 @@ mod tests {
             .entries
             .iter()
             .all(|entry| entry.index == " " || entry.index == "?"));
+        let encoded = crate::workspace::text_encoding::encode("下午\r\n", Encoding::Big5).unwrap();
+        std::fs::write(root.join("legacy.log"), &encoded).unwrap();
+        stage(&root, "legacy.log", false, None).unwrap();
+        commit(&root, "Big5 baseline").unwrap();
+        std::fs::write(
+            root.join("legacy.log"),
+            crate::workspace::text_encoding::encode("上午\r\n", Encoding::Big5).unwrap(),
+        )
+        .unwrap();
+        let encoded_diff = diff_encoded(&root, "legacy.log", false, None, Encoding::Big5).unwrap();
+        assert_eq!(encoded_diff.before, "下午\r\n");
+        assert_eq!(encoded_diff.after, "上午\r\n");
+        assert!(diff(&root, "legacy.log", false, None).is_err());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

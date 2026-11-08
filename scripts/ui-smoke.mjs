@@ -35,6 +35,7 @@ window.__TAURI_INTERNALS__ = {
     if (command === 'list_directory') return { root: '/fixture', files: Object.keys(buffers).filter(path => path.slice(0, path.lastIndexOf('/') + 1) === (args.path ? args.path + '/' : '')), directories: [], selected: null };
     if (command === 'list_files') return Object.keys(buffers);
     if (command === 'list_workspace') return { root: '/fixture', files: Object.keys(buffers), directories: ['empty'], selected: null };
+    if (command === 'read_document') { if (!(args.path in buffers)) throw 'Missing file'; return { text: buffers[args.path], encoding: args.encoding ?? 'utf8' }; }
     if (command === 'read_file') { if (!(args.path in buffers)) throw 'Missing file'; return buffers[args.path]; }
     if (command === 'create_file') { if (args.path in buffers) throw 'Already exists'; buffers[args.path] = args.content; return; }
     if (command === 'save_file') { if (buffers[args.path] !== args.original) throw 'Conflict'; buffers[args.path] = args.content; return; }
