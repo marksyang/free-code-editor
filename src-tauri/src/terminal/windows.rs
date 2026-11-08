@@ -15,6 +15,7 @@ use std::{
     thread,
 };
 type Handle = *mut c_void;
+const STARTF_USESTDHANDLES: u32 = 0x0000_0100;
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct Coord {
@@ -220,6 +221,8 @@ pub struct Poll {
     pub bytes: Vec<u8>,
     pub exited: bool,
     pub truncated: bool,
+    #[serde(rename = "exitCode")]
+    pub exit_code: Option<u32>,
 }
 struct Session {
     id: u64,
@@ -321,6 +324,13 @@ fn start_session(id: u64, root: &Path, columns: u16, rows: u16) -> Result<Sessio
     }
     let mut startup: StartupInfoEx = unsafe { zeroed() };
     startup.info.cb = size_of::<StartupInfoEx>() as u32;
+    // A redirected parent (cargo test / CI) can otherwise supply its pipes or EOF
+    // as the child's standard streams despite bInheritHandles=false. Request
+    // fresh console handles from ConPTY instead, as Microsoft/node-pty does.
+    startup.info.flags |= STARTF_USESTDHANDLES;
+    startup.info.stdin = std::ptr::null_mut();
+    startup.info.stdout = std::ptr::null_mut();
+    startup.info.stderr = std::ptr::null_mut();
     startup.attributes = attributes.pointer();
     let mut process: ProcessInfo = unsafe { zeroed() };
     // Suspend until the process is assigned to our cleanup job object.
@@ -454,6 +464,7 @@ impl Manager {
                 bytes: out.bytes.drain(..).collect(),
                 exited: exited && out.finished,
                 truncated: std::mem::take(&mut out.truncated),
+                exit_code: exited.then_some(code),
             })
         })
     }
@@ -500,12 +511,45 @@ mod tests {
             }
             assert!(!output.truncated, "ConPTY test output overflowed");
             assert!(!output.exited && std::time::Instant::now() < deadline,
-                "ConPTY probe failed: command_sent={command_sent}, exited={}, visible={visible:?}, raw_tail={:?}",
-                output.exited, String::from_utf8_lossy(&raw[raw.len().saturating_sub(8192)..]));
+                "ConPTY probe failed: command_sent={command_sent}, exited={}, exit_code={:?}, visible={visible:?}, raw_tail={:?}",
+                output.exited, output.exit_code.map(|code| format!("{code} (0x{code:08X})")), String::from_utf8_lossy(&raw[raw.len().saturating_sub(8192)..]));
             thread::sleep(std::time::Duration::from_millis(20));
         }
         manager.stop(Some(id));
         assert!(manager.poll(id).is_err());
         assert!(manager.write(id, "input").is_err());
+    }
+
+    #[test]
+    fn conpty_ignores_redirected_parent_standard_streams() {
+        // Execute the real smoke test with the same null stdin / captured output
+        // that exposed the startup bug on CI. --exact prevents recursive runs.
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "terminal::windows::tests::conpty_accepts_powershell_input_resize_and_rejects_stale_sessions",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "Redirected-parent ConPTY test failed: {}\nstdout={stdout}\nstderr={stderr}",
+            output.status
+        );
+        assert!(
+            stdout.contains("running 1 test") && stdout.contains("1 passed"),
+            "Smoke test was not executed: {stdout}"
+        );
+        assert!(
+            !stdout.contains("__PTY_READY__"),
+            "Shell output escaped ConPTY into the parent stdout: {stdout}"
+        );
     }
 }

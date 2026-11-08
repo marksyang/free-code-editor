@@ -211,3 +211,5 @@ macOS 使用 Command，Windows／Linux 使用 Ctrl；命令面板會顯示對應
 本專案採用 [MIT License](LICENSE)。第三方依賴仍依各自的授權條款使用。
 
 Windows ConPTY 的 CI 測試會等待 PowerShell 初始提示字元後才輸入命令，並以跨讀取保留狀態的 VT peer 處理 ANSI 與游標查詢，避免直接比對原始輸出。啟動與命令回應各有 30 秒期限；失敗時回報是否已送出命令、shell 是否退出及輸出尾端。Windows Rust 測試採單執行緒，保留十萬檔案測試並避免與 shell 啟動競爭 I/O。此修正已在 macOS 驗證共用 VT peer，Windows ConPTY 本身仍須重新執行 CI 確認。
+
+Windows ConPTY 啟動時設定 `STARTF_USESTDHANDLES` 並清空 stdin／stdout／stderr，避免 CI 或輸出重新導向時沿用父程序的管線／EOF，導致 PowerShell 在提示字元出現前退出。修正方式與 [Microsoft node-pty 的實作](https://github.com/microsoft/node-pty/blob/main/src/win/conpty.cc) 一致；新增 Windows 子程序回歸測試，明確使用空 stdin 與被捕捉的 stdout／stderr 執行實際 ConPTY 測試。失敗診斷包含 Windows 退出碼（十進位與十六進位），終端機面板亦顯示退出碼。Windows 原生結果仍須 CI 重跑確認。

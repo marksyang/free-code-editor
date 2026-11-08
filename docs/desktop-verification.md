@@ -111,3 +111,9 @@ npm run test:desktop:fixture
 ### Windows CI ConPTY 測試修正
 
 使用者提供的 Windows CI 記錄為 39 項中 38 項通過，ConPTY marker 斷言失敗，十萬檔案測試則成功。已修正測試的啟動等待、跨讀取 VT 解析、游標回報、期限與失敗診斷，Windows CI 改循序執行 Rust 測試；未略過 ConPTY 或縮小大型工作區測試。本機 macOS 42 項 Rust 測試與 all-targets Clippy 通過，修正後的 Windows runner 尚待重新執行。
+
+### Windows ConPTY 標準串流隔離修正
+
+後續 CI 為 41 項中 40 項通過，ConPTY 顯示 `command_sent=false, exited=true`，輸出只有清屏、視窗標題及輸入模式切換，PowerShell 未進入提示字元。前一版等待與 VT 解析未解決實際程序提前退出。
+
+已補上 `STARTF_USESTDHANDLES` 與空標準 handles，避免重複使用 CI 父程序被重新導向的標準串流；依據為 [Microsoft Terminal 的問題說明](https://github.com/microsoft/terminal/discussions/15814) 與 [node-pty 的啟動設定](https://github.com/microsoft/node-pty/blob/main/src/win/conpty.cc)。新增以空 stdin、管線 stdout／stderr 啟動真正 smoke test 的 Windows 回歸測試，並在提前退出時回報 exit code。保留原本的啟動等待、VT 處理、期限與十萬檔案測試。修正後 Windows CI 尚待重跑，不將本機 macOS 通過視為 Windows 已通過。

@@ -14,7 +14,7 @@ function loadLocalFont() {
   }).catch(() => false);
 }
 
-type Poll = { bytes: number[]; exited: boolean; truncated: boolean };
+type Poll = { bytes: number[]; exited: boolean; truncated: boolean; exitCode?: number | null };
 export function TerminalPanel({ root, english, visible, hide }: { root: string; english: boolean; visible: boolean; hide: () => void }) {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
@@ -61,7 +61,11 @@ export function TerminalPanel({ root, english, visible, hide }: { root: string; 
         if (disposed) return;
         if (output.truncated) term.writeln('\r\n[Output buffer overflow: older output was dropped]');
         if (output.bytes.length) term.write(new Uint8Array(output.bytes));
-        if (output.exited) { term.writeln('\r\n[Shell exited — restart to continue]'); return; }
+        if (output.exited) {
+          const code = output.exitCode == null ? '' : ` (code ${output.exitCode})`;
+          term.writeln(`\r\n[Shell exited${code} — restart to continue]`);
+          return;
+        }
         timer = setTimeout(() => { void poll(); }, 50);
       } catch (error) { report(error); }
     }
