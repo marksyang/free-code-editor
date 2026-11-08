@@ -6,3 +6,6 @@ mod windows;
 pub use unix::*;
 #[cfg(windows)]
 pub use windows::*;
+
+#[cfg(test)]
+mod probe;

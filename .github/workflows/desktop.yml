@@ -34,7 +34,13 @@ jobs:
       - run: npm test
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked -- -D warnings
-      - run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - name: Rust tests (macOS / Linux)
+        if: runner.os != 'Windows'
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+      - name: Rust tests (Windows)
+        if: runner.os == 'Windows'
+        # Keep the 100,011-file filesystem test from competing with shell startup.
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked -- --test-threads=1
       - run: npm run bundle
       - uses: actions/upload-artifact@v4
         with:

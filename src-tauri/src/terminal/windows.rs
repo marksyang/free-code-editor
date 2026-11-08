@@ -475,24 +475,35 @@ mod tests {
         manager.activate(&root).unwrap();
         let id = manager.start(&root, 80, 24).unwrap();
         manager.resize(id, 96, 28).unwrap();
-        manager
-            .write(id, "Write-Output ('__PTY_' + 'READY__')\r")
-            .unwrap();
-        let mut output = Vec::new();
-        let mut reports = 0;
-        for _ in 0..300 {
-            output.extend(manager.poll(id).unwrap().bytes);
-            let requested = output.windows(4).filter(|part| *part == b"\x1b[6n").count();
-            for _ in reports..requested {
-                manager.write(id, "\x1b[1;1R").unwrap();
+        let mut peer = super::super::probe::Probe::new(96, 28);
+        let mut raw = Vec::new();
+        let mut command_sent = false;
+        let mut deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let output = manager.poll(id).unwrap();
+            raw.extend(&output.bytes);
+            for reply in peer.feed(&output.bytes) {
+                manager.write(id, &reply).unwrap();
             }
-            reports = requested;
-            if String::from_utf8_lossy(&output).contains("__PTY_READY__") {
+            let visible = peer.text();
+            // PowerShell/PSReadLine may initialize or flush input before its first prompt.
+            if !command_sent && visible.trim_end().ends_with('>') {
+                manager
+                    .write(id, "Write-Output ('__PTY_' + 'READY__')\r")
+                    .unwrap();
+                command_sent = true;
+                deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            }
+            // ConPTY emits VT repaint sequences, so raw byte substring matching is invalid.
+            if command_sent && visible.contains("__PTY_READY__") {
                 break;
             }
+            assert!(!output.truncated, "ConPTY test output overflowed");
+            assert!(!output.exited && std::time::Instant::now() < deadline,
+                "ConPTY probe failed: command_sent={command_sent}, exited={}, visible={visible:?}, raw_tail={:?}",
+                output.exited, String::from_utf8_lossy(&raw[raw.len().saturating_sub(8192)..]));
             thread::sleep(std::time::Duration::from_millis(20));
         }
-        assert!(String::from_utf8_lossy(&output).contains("__PTY_READY__"));
         manager.stop(Some(id));
         assert!(manager.poll(id).is_err());
         assert!(manager.write(id, "input").is_err());

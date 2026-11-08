@@ -100,10 +100,14 @@ npm run test:desktop:fixture
 
 | 平台 | 本次可確認 | 尚未完成 |
 | --- | --- | --- |
-| macOS | Rust 40 項、Node 50 項通過；型別檢查、Clippy、正式建置與 `.app` 打包 | 真實 WebView／桌面互動 |
+| macOS | Rust 42 項、Node 50 項通過；型別檢查、Clippy、正式建置與 `.app` 打包 | 真實 WebView／桌面互動 |
 | Windows | ConPTY、外部連結、字型與路徑處理原始碼；安裝包設定；已加入 Windows runner 與 ConPTY 服務測試 | 原生編譯／Clippy／測試、NSIS／MSI 產物、WebView2 與桌面互動 |
 | Linux | Unix PTY 分流、xdg-open、字型與打包設定；已加入 Ubuntu runner | 原生編譯／測試、DEB／AppImage 產物、WebKitGTK 與桌面互動 |
 
 目前僅安裝 macOS Rust target，Docker daemon 未啟動，亦未在本次工作中執行遠端 CI。原始碼完成與 workflow 存在均不代表 Windows／Linux 已驗證。
 
 目標平台需另外驗收：非 ASCII 工作區、Windows 磁碟機／UNC 路徑與根目錄另存新檔、檔案樹與搜尋結果跳轉、Git 暫存與提交、npm LSP 啟動器、中文輸入與 Nerd Font、Ctrl+C／互動終端機、關閉／重啟後程序清理、設定恢復及 HTTP(S) 外部連結。Linux 應分別確認 X11／Wayland 環境。
+
+### Windows CI ConPTY 測試修正
+
+使用者提供的 Windows CI 記錄為 39 項中 38 項通過，ConPTY marker 斷言失敗，十萬檔案測試則成功。已修正測試的啟動等待、跨讀取 VT 解析、游標回報、期限與失敗診斷，Windows CI 改循序執行 Rust 測試；未略過 ConPTY 或縮小大型工作區測試。本機 macOS 42 項 Rust 測試與 all-targets Clippy 通過，修正後的 Windows runner 尚待重新執行。

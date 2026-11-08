@@ -155,7 +155,7 @@ rustc --edition=2021 --test src-tauri/src/workspace.rs -o /private/tmp/free-code
 /private/tmp/free-code-editor-workspace-tests
 ```
 
-2026-11-07：Node 測試 50 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 40 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
+2026-11-07：Node 測試 50 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 42 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
 
 LSP 的 Rust 測試透過 Python 3 stdio 假伺服器驗證訊息分段、UTF-8 長度、同步、儲存、取消、逾時、退出與程序生命週期，並在本機 `/usr/bin/clangd` 存在時實測初始化及 C 定義查詢。需要 Python 3。
 
@@ -209,3 +209,5 @@ macOS 使用 Command，Windows／Linux 使用 Ctrl；命令面板會顯示對應
 ## 授權
 
 本專案採用 [MIT License](LICENSE)。第三方依賴仍依各自的授權條款使用。
+
+Windows ConPTY 的 CI 測試會等待 PowerShell 初始提示字元後才輸入命令，並以跨讀取保留狀態的 VT peer 處理 ANSI 與游標查詢，避免直接比對原始輸出。啟動與命令回應各有 30 秒期限；失敗時回報是否已送出命令、shell 是否退出及輸出尾端。Windows Rust 測試採單執行緒，保留十萬檔案測試並避免與 shell 啟動競爭 I/O。此修正已在 macOS 驗證共用 VT peer，Windows ConPTY 本身仍須重新執行 CI 確認。
