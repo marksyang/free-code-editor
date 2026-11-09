@@ -141,3 +141,15 @@ macOS Rust 46 項、Node 60 項通過（另 1 項 Make 測試略過）。服務�
 使用者回報介面與編輯區中文顯示方框／空白。已補上介面、Monaco／差異檢視、Markdown 與終端機的明確 Noto CJK 備援，Linux `.deb` 加入 `fonts-noto-cjk`／`fontconfig` 依賴，CI 建置環境亦安裝字型。AppImage 仍須主機自行安裝 CJK 字型。
 
 本機為 macOS，尚未在 Ubuntu 24.04 WebKitGTK 真實視窗驗證。目標驗收：安裝字型、執行 `fc-cache -f`，確認 `fc-list :lang=zh family` 有 CJK 字型；重新啟動後驗證選單、編輯區、差異比較與 Markdown 中的「繁體中文、简体中文」。
+
+### Windows Git CRLF 測試隔離（2026-11-09）
+
+使用者回報 Big5 Git 差異測試預期「下午\r\n」，但索引實際為「下午\n」。Git 的 `core.autocrlf` 正規化可造成此差異，並不表示磁碟文件被轉碼。測試 fixture 現在固定 repository-local `core.autocrlf=false`，並透過暫存 repository 的 `.git/info/attributes` 保留原始 bytes，排除全域 attributes 的文字／編碼／filter 干擾；正式 Git 服務維持使用者的設定。
+
+新增 `autocrlf=true` 的回歸測試，驗證 Big5 索引為 LF、工作目錄仍為 CRLF，且讀取差異不改動文件。macOS 本機 Git 服務 5 項測試通過；另以臨時全域 `autocrlf=true` 與 `* text eol=lf` 設定重跑 5 項亦通過，all-targets Clippy 通過。未改使用者全域 Git 設定，Windows runner 仍需重跑確認。
+
+### Windows Job Object FFI 宣告（2026-11-09）
+
+統一 AI 程序與終端機的 `CreateJobObjectW` 第一個參數為 `*const c_void`，空參數使用 `ptr::null()`，消除 `clashing_extern_declarations`，未停用任何警告。對照 [Microsoft Rust API 定義](https://microsoft.github.io/windows-docs-rs/doc/windows/Win32/System/JobObjects/fn.CreateJobObjectW.html)。
+
+本機擷取兩處共用的四個 extern 宣告，以 `rustc --emit=metadata -Dclashing_extern_declarations` 編譯通過；回填原本的 mutable pointer 宣告可重現衝突。格式與 all-targets Clippy 通過。本機沒有 Windows Rust target，完整 Windows 編譯及 Job Object 執行仍待 CI。

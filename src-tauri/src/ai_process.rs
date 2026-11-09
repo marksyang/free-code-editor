@@ -51,7 +51,7 @@ mod job {
 
     #[link(name = "kernel32")]
     extern "system" {
-        fn CreateJobObjectW(a: Handle, n: *const u16) -> Handle;
+        fn CreateJobObjectW(security: *const c_void, name: *const u16) -> Handle;
         fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
         fn SetInformationJobObject(job: Handle, class: i32, info: *const c_void, size: u32) -> i32;
         fn TerminateJobObject(job: Handle, code: u32) -> i32;
@@ -65,7 +65,7 @@ mod job {
     impl Job {
         pub fn attach(child: &Child) -> Result<Self, String> {
             unsafe {
-                let job = CreateJobObjectW(std::ptr::null_mut(), std::ptr::null());
+                let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
                 if job.is_null() {
                     return Err("Cannot create agent process job".into());
                 }

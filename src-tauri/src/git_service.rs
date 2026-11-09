@@ -359,6 +359,41 @@ pub fn history_diff_encoded(
 #[cfg(test)]
 mod tests {
     use super::*;
+    struct Fixture(std::path::PathBuf);
+    impl Fixture {
+        fn new(label: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "editor-git-{label}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir(&dir).unwrap();
+            let fixture = Self(dir.canonicalize().unwrap());
+            let root = &fixture.0;
+            run(root, &["init"]).unwrap();
+            run(root, &["config", "user.name", "Test"]).unwrap();
+            run(root, &["config", "user.email", "test@example.invalid"]).unwrap();
+            run(root, &["config", "commit.gpgsign", "false"]).unwrap();
+            run(root, &["config", "core.autocrlf", "false"]).unwrap();
+            // Preserve fixture bytes regardless of global attributes or Windows defaults.
+            std::fs::create_dir_all(root.join(".git/info")).unwrap();
+            std::fs::write(
+                root.join(".git/info/attributes"),
+                "* -text !eol !working-tree-encoding !filter\n",
+            )
+            .unwrap();
+            fixture
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn history_preserves_fields_and_rejects_invalid_records() {
         let id = "a".repeat(40);
@@ -377,20 +412,8 @@ mod tests {
     }
     #[test]
     fn history_handles_root_rename_delete_merge_and_stable_pagination() {
-        struct Fixture(std::path::PathBuf);
-        impl Drop for Fixture {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-        let dir = std::env::temp_dir().join(format!("editor-git-history-{}", std::process::id()));
-        std::fs::create_dir(&dir).unwrap();
-        let fixture = Fixture(dir.canonicalize().unwrap());
+        let fixture = Fixture::new("history");
         let root = &fixture.0;
-        run(root, &["init"]).unwrap();
-        run(root, &["config", "user.name", "History Test"]).unwrap();
-        run(root, &["config", "user.email", "history@example.invalid"]).unwrap();
-        run(root, &["config", "commit.gpgsign", "false"]).unwrap();
         assert!(history(root, 0, None).unwrap().commits.is_empty());
         std::fs::write(root.join("old name.rs"), "first\n").unwrap();
         stage(root, "old name.rs", false, None).unwrap();
@@ -479,12 +502,8 @@ mod tests {
     }
     #[test]
     fn staging_committing_and_diff_keep_worktree_edits() {
-        let dir = std::env::temp_dir().join(format!("editor-git-{}", std::process::id()));
-        std::fs::create_dir(&dir).unwrap();
-        let root = dir.canonicalize().unwrap();
-        run(&root, &["init"]).unwrap();
-        run(&root, &["config", "user.name", "Test"]).unwrap();
-        run(&root, &["config", "user.email", "test@example.invalid"]).unwrap();
+        let fixture = Fixture::new("staging");
+        let root = fixture.0.clone();
         std::fs::write(root.join("a file.rs"), "first\n").unwrap();
         assert_eq!(status(&root).unwrap().entries[0].index, "?");
         stage(&root, "a file.rs", false, None).unwrap();
@@ -530,6 +549,30 @@ mod tests {
         assert_eq!(encoded_diff.before, "下午\r\n");
         assert_eq!(encoded_diff.after, "上午\r\n");
         assert!(diff(&root, "legacy.log", false, None).is_err());
-        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn big5_diff_respects_git_normalization_without_changing_worktree_bytes() {
+        let fixture = Fixture::new("autocrlf");
+        let root = &fixture.0;
+        run(root, &["config", "core.autocrlf", "true"]).unwrap();
+        run(root, &["config", "core.safecrlf", "false"]).unwrap();
+        std::fs::write(
+            root.join(".git/info/attributes"),
+            "* text=auto !eol !working-tree-encoding !filter\n",
+        )
+        .unwrap();
+        let original = text_encoding::encode("下午\r\n", Encoding::Big5).unwrap();
+        std::fs::write(root.join("legacy.log"), &original).unwrap();
+        stage(root, "legacy.log", false, None).unwrap();
+        let staged = diff_encoded(root, "legacy.log", true, None, Encoding::Big5).unwrap();
+        assert_eq!(staged.after, "下午\n");
+        assert_eq!(std::fs::read(root.join("legacy.log")).unwrap(), original);
+        commit(root, "Normalized Big5").unwrap();
+        let edited = text_encoding::encode("上午\r\n", Encoding::Big5).unwrap();
+        std::fs::write(root.join("legacy.log"), &edited).unwrap();
+        let change = diff_encoded(root, "legacy.log", false, None, Encoding::Big5).unwrap();
+        assert_eq!(change.before, "下午\n");
+        assert_eq!(change.after, "上午\r\n");
+        assert_eq!(std::fs::read(root.join("legacy.log")).unwrap(), edited);
     }
 }
