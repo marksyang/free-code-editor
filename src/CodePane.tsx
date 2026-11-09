@@ -1,3 +1,4 @@
+import { editorFontFamily } from './fonts';
 import { useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { monaco } from './monaco';
@@ -19,7 +20,7 @@ export function CodePane({ tab, scope, readOnly, change, focused, mounted, minim
   const language = tab.language ?? languageForPath(tab.path);
   return <Editor theme="vs-dark" path={editorModelPath(scope, tab.id, tab.path, tab.language)}
     language={language} value={tab.text} keepCurrentModel saveViewState
-    options={{ automaticLayout: true, fontSize: 14, readOnly, insertSpaces: language !== 'makefile',
+    options={{ automaticLayout: true, fontFamily: editorFontFamily, fontSize: 14, readOnly, insertSpaces: language !== 'makefile',
       detectIndentation: language !== 'makefile', tabSize: 4, minimap: { enabled: minimap },
       scrollBeyondLastLine: false, renderWhitespace: language === 'makefile' ? 'all' : 'selection' }}
     onChange={value => change(tab.id, value ?? '')}

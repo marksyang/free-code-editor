@@ -1,3 +1,4 @@
+import { terminalFontFamily } from './fonts';
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Terminal } from '@xterm/xterm';
@@ -30,7 +31,7 @@ export function TerminalPanel({ root, english, visible, hide }: { root: string; 
     const term = new Terminal({
       cursorBlink: true, fontSize: 13, scrollback: 5000,
       // Shell themes use private-use glyphs absent from the default monospace font.
-      fontFamily: '"SauceCodePro Nerd Font Mono", "SauceCodePro Nerd Font", "MesloLGS NF", "MesloLGM Nerd Font Mono", "JetBrainsMono Nerd Font Mono", "FiraCode Nerd Font Mono", "Hack Nerd Font Mono", "Symbols Nerd Font Mono", Menlo, Monaco, monospace',
+      fontFamily: terminalFontFamily,
       rescaleOverlappingGlyphs: true,
       theme: { background: '#17191f' },
     });

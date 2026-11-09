@@ -18,7 +18,7 @@ Ubuntu 22.04 建置依賴：
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xdg-utils libfuse2
+sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev xdg-utils libfuse2 fonts-noto-cjk fontconfig
 ```
 
 其他發行版與 Windows 工具安裝方式見 [Tauri 官方先決條件](https://v2.tauri.app/start/prerequisites/)。Windows 終端機使用 [ConPTY](https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session)，因此應使用 Windows 10 1809 或更新版本。
@@ -253,3 +253,16 @@ HTTP 由 Rust 管理系統 `curl` 子程序，憑證及請求經 stdin 傳送，
 容量：每次任務最多 30 輪；命令預設 120 秒，可設 1–3600 秒；模型連線最多 120 秒。單次文件讀取／修改及工具參數／結果上限 256 KiB，命令輸出 256 KiB；工具讀取限制不改變編輯器的 100 MiB 開檔上限。搜尋最多 100 筆、走訪最多 100,000 項，目錄列舉最多 500 項，超限回傳截斷資訊。每次模型請求的對話內容預算 64 KiB，本機歷史上限 8 MiB；超限明確報錯，需縮小內容或清除對話，不自動丟棄舊內容。
 
 目前本機驗證包含 Rust 原生 Agent 迴圈、兩檔修改與實際 shell 指令、程序型串流 fixture、中文 SSE、批准拒絕／取消／逾時、路徑排除、外部衝突及 Big5／CRLF。尚未提供輸入時的 AI 行內補全、MCP、網頁瀏覽或多 Agent。真實模型、系統憑證庫讀寫及三平台桌面操作尚待目標環境驗收，詳見 [桌面驗證紀錄](docs/desktop-verification.md)。
+
+## Ubuntu 24.04 中文顯示方框／空白
+
+中文顯示成方框或空白時，先確認已安裝 CJK 字型。介面、Monaco（含差異比較）、Markdown 與終端機已加入 Noto CJK 備援；備援名稱本身不會下載字型。新的 `.deb` 宣告 `fonts-noto-cjk` 與 `fontconfig` 依賴，請用 `sudo apt install ./檔名.deb` 安裝以解析依賴。AppImage 及舊版本需在主機安裝字型：
+
+```sh
+sudo apt update
+sudo apt install fonts-noto-cjk fontconfig
+fc-cache -f
+fc-list :lang=zh family | head
+```
+
+完全關閉並重新啟動編輯器後，檢查選單與文件中的「繁體中文、简体中文」。`fc-list` 應列出 Noto CJK 等中文字型；若沒有結果，需先處理系統字型安裝／快取問題。若中文字型已存在但仍無法顯示，請記錄 `.deb`／AppImage、X11／Wayland、`fc-list :lang=zh family` 輸出與畫面，繼續確認 WebKitGTK 的字型載入。此項是字形顯示修正，不會轉換文件編碼或改動輸入法設定。

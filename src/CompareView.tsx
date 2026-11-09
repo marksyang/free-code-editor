@@ -1,3 +1,4 @@
+import { editorFontFamily } from './fonts';
 import { useEffect, useRef, useState } from 'react';
 import { monaco } from './monaco';
 import { languageForPath } from './languages';
@@ -22,7 +23,7 @@ export function CompareView({ left, right, english, close }: Props) {
     const a = monaco.editor.createModel(original.text, original.language ?? languageForPath(original.path));
     const b = monaco.editor.createModel(modified.text, modified.language ?? languageForPath(modified.path));
     const editor = monaco.editor.createDiffEditor(host.current!, {
-      theme: 'vs-dark', automaticLayout: true, readOnly: true, originalEditable: false,
+      theme: 'vs-dark', fontFamily: editorFontFamily, automaticLayout: true, readOnly: true, originalEditable: false,
       renderSideBySide: true, enableSplitViewResizing: true, minimap: { enabled: false },
     });
     editor.setModel({ original: a, modified: b });

@@ -135,3 +135,9 @@ macOS Rust 46 項、Node 60 項通過（另 1 項 Make 測試略過）。服務�
 待人工驗收：啟動 Ollama 或設定相容 API，測試串流與工具呼叫；分別以確認與自動模式完成雙檔修改和測試；拒絕與取消後確認無後續操作；API Key 保存、重啟載入與刪除；檢查每工作區對話隔離、清除、關閉期間停止程序；在 Windows／Linux 重跑原生測試及 UI 驗收。
 
 2026-11-09 本機驗證：Rust 56 項通過，Node 63 項通過、1 項 Make 測試略過；格式、all-targets Clippy、TypeScript／Vite 及 macOS `.app` 打包通過。
+
+### Ubuntu 24.04 CJK 字形（2026-11-09）
+
+使用者回報介面與編輯區中文顯示方框／空白。已補上介面、Monaco／差異檢視、Markdown 與終端機的明確 Noto CJK 備援，Linux `.deb` 加入 `fonts-noto-cjk`／`fontconfig` 依賴，CI 建置環境亦安裝字型。AppImage 仍須主機自行安裝 CJK 字型。
+
+本機為 macOS，尚未在 Ubuntu 24.04 WebKitGTK 真實視窗驗證。目標驗收：安裝字型、執行 `fc-cache -f`，確認 `fc-list :lang=zh family` 有 CJK 字型；重新啟動後驗證選單、編輯區、差異比較與 Markdown 中的「繁體中文、简体中文」。
