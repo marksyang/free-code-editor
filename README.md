@@ -1,6 +1,6 @@
 # Free Code Editor
 
-版本：**1.0.1**；發行說明見 [v1.0.1](docs/releases/v1.0.1.md)。
+版本：**1.1.0**；發行說明見 [v1.1.0](docs/releases/v1.1.0.md)。
 
 Rust / Tauri 2 + React / TypeScript / Monaco 桌面編輯器，包含 macOS、Windows 與 Linux 的平台實作及建置設定。Windows／Linux 原生驗證尚待對應 CI 執行。專案仍在開發中，已加入 LSP 語言智慧功能與 AI Agent，可連接相容 API 與本機 Ollama。
 
@@ -34,20 +34,20 @@ npm run bundle        # 依本機平台產生安裝包
 
 `.github/workflows/desktop.yml` 在 macOS、Windows、Ubuntu runner 執行 Node／Rust 測試、Clippy 與打包並上傳 artifacts；新增 workflow 並不表示遠端執行已通過。目前僅本機 macOS 完成編譯與服務測試，Windows／Linux 原生建置、ConPTY／Linux PTY 與桌面操作待 CI／人工驗證。
 
-## 發佈 1.0.1
+## 發佈 1.1.0
 
-版本號需在 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 與 `src-tauri/tauri.conf.json` 保持一致；`node scripts/check-version.mjs` 會驗證它們，tag 必須是 `v1.0.1`。
+版本號需在 `package.json`、`package-lock.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` 與 `src-tauri/tauri.conf.json` 保持一致；`node scripts/check-version.mjs` 會驗證它們，tag 必須是 `v1.1.0`。
 
 ```sh
 git add .
-git commit -m "Release 1.0.1"
-git tag -a v1.0.1 -m "Free Code Editor 1.0.1"
-git push origin main v1.0.1
+git commit -m "Release 1.1.0"
+git tag -a v1.1.0 -m "Free Code Editor 1.1.0"
+git push origin main v1.1.0
 ```
 
 推送 tag 後，三平台 CI 完成測試與打包，再建立 GitHub Release，附上 macOS `.app.tar.gz`、Windows NSIS／MSI、Linux DEB／AppImage 與 `SHA256SUMS.txt`。任一平台失敗時不會執行發佈。macOS 先封裝為 tar.gz 再上傳，以保留 `.app` 執行權限。一般推送 `main` 或手動執行 workflow 只建置 artifacts，不建立 Release。
 
-Release 由獨立 job 使用 `contents: write` 權限與 `gh release create --verify-tag` 建立，不會覆寫已存在的 Release。`docs/releases/v1.0.1.md` 為發行說明來源；建置、簽章與桌面驗證的限制均列於其中。產物也可在本機建置後以 `node scripts/prepare-release-assets.mjs` 整理至 `release-assets/`。
+Release 由獨立 job 使用 `contents: write` 權限與 `gh release create --verify-tag` 建立，不會覆寫已存在的 Release。`docs/releases/v1.1.0.md` 為發行說明來源；建置、簽章與桌面驗證的限制均列於其中。產物也可在本機建置後以 `node scripts/prepare-release-assets.mjs` 整理至 `release-assets/`。
 
 ## 已實作功能
 
@@ -174,7 +174,7 @@ rustc --edition=2021 --test src-tauri/src/workspace.rs -o /private/tmp/free-code
 /private/tmp/free-code-editor-workspace-tests
 ```
 
-2026-11-09：Node 測試 63 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 56 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
+2026-11-09：Node 測試 63 個通過，1 個 `.RECIPEPREFIX` 解析測試因本機 GNU Make 3.81 而略過；Rust 測試 57 個通過。格式檢查與 Clippy 通過，TypeScript、Vite 正式建置及 macOS `.app` 打包通過。Vite 仍有大型 chunk 警告。
 
 LSP 的 Rust 測試透過 Python 3 stdio 假伺服器驗證訊息分段、UTF-8 長度、同步、儲存、取消、逾時、退出與程序生命週期，並在本機 `/usr/bin/clangd` 存在時實測初始化及 C 定義查詢。需要 Python 3。
 
